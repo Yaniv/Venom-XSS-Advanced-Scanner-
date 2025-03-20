@@ -256,7 +256,6 @@ class PayloadGenerator:
         return list(set(payloads))
 
     def optimize_payloads(self, response_text: str) -> List[str]:
-        # בחר תת-קבוצה של פיילודים לפי תגובת הדף
         html_context = '<input' in response_text or '<form' in response_text
         js_context = '<script' in response_text or 'javascript:' in response_text
         optimized = []
@@ -269,7 +268,7 @@ class PayloadGenerator:
                 optimized.append(payload)
             elif '<script' in payload or '<iframe' in payload or '<meta' in payload:
                 optimized.append(payload)
-        return optimized if optimized else self.payloads[:50]  # ברירת מחדל: 50 פיילודים ראשונים
+        return optimized if optimized else self.payloads[:50]
 
     def generate(self) -> List[str]:
         return self.payloads
@@ -299,7 +298,7 @@ class AIAssistant:
                 ai_suggestions = self.get_ai_suggestions(response)
                 executable_payloads.extend(ai_suggestions)
                 logging.info(f"AI-enhanced payload set generated: {len(ai_suggestions)} additional payloads.")
-            return list(set(executable_payloads + other_payloads[:20]))  # הגבלת other_payloads
+            return list(set(executable_payloads + other_payloads[:20]))
         
         if response and self.api_key and self.api_endpoint:
             context = 'html' if '<' in response else 'js' if 'script' in response.lower() else 'unknown'
@@ -449,7 +448,7 @@ class Venom:
         parsed = urlparse(url)
         params = parse_qs(parsed.query)
         param_keys = list(params.keys())
-        additional_params = ['q', 'search', 'query', 'id', 'page']  # פרמטרים נפוצים
+        additional_params = ['q', 'search', 'query', 'id', 'page']
         for param in additional_params:
             if param not in param_keys:
                 param_keys.append(param)
@@ -494,7 +493,7 @@ class Venom:
             response = self.session.get(url, timeout=self.args.timeout, verify=True)
             if response.status_code == 403 and not self.use_403_bypass:
                 self.use_403_bypass = True
-                self.payload_generator = PayloadGenerator(self.args.payloads_dir, self.bypass_performed, self.use_403_bypass, self.args.stealth or self.is_waf_detected)
+                self.payload_generator = PayloadGenerator(self.args.payloads_dir, self.bypass_performed, self.use_403_bypass, True)
                 self.payloads = self.payload_generator.generate()
                 self.total_payloads = len(self.payloads)
                 self.ai_assistant = AIAssistant(self.payloads, self.args.ai_key) if self.args.ai_assist else None
@@ -611,7 +610,6 @@ class Venom:
                 soup = BeautifulSoup(resp.text, 'html.parser')
                 in_executable_context = False
                 
-                # בדיקת <script>, <iframe>, <meta>, <link>
                 for tag in soup.find_all(['script', 'iframe', 'meta', 'link']):
                     if tag.name == 'script' and payload.lower() in tag.text.lower():
                         in_executable_context = True
@@ -620,7 +618,6 @@ class Venom:
                         in_executable_context = True
                         break
                 
-                # בדיקת מאפייני on*
                 if not in_executable_context:
                     for tag in soup.find_all(True):
                         for attr, value in tag.attrs.items():
@@ -630,11 +627,10 @@ class Venom:
                         if in_executable_context:
                             break
                 
-                # בדיקה אם הפיילוד בתוך value של input
                 if not in_executable_context:
                     for input_tag in soup.find_all('input'):
                         if payload.lower() in str(input_tag.get('value', '')).lower():
-                            in_executable_context = False  # לא מבצעי בתוך value
+                            in_executable_context = False
                             break
                 
                 if reflected and in_executable_context and payload.strip():
@@ -655,10 +651,10 @@ class Venom:
         elapsed = int(time.time() - self.start_time)
         progress = (self.total_tests.get() / self.total_payloads * 100) if self.total_payloads else 0
         progress = min(progress, 100.0)
-        payload_trunc = f"{self.current_payload[:40]}..." if len(self.current_payload) > 40 else self.current_payload
+        # הצגת הפיילוד במלואו ללא קיצור
         status = f"{GREEN}╔════ Scan Status ════╗{RESET}\n" \
                  f"{GREEN}║{RESET} Progress: {WHITE}{progress:.1f}%{RESET}  Tests: {WHITE}{self.total_tests.get()}/{self.total_payloads}{RESET}  Vulns: {WHITE}{len(self.vulnerabilities)}{RESET}\n" \
-                 f"{GREEN}║{RESET} Payload: {YELLOW}{payload_trunc}{RESET}\n" \
+                 f"{GREEN}║{RESET} Payload: {YELLOW}{self.current_payload}{RESET}\n" \
                  f"{GREEN}║{RESET} Elapsed: {WHITE}{elapsed}s{RESET}\n" \
                  f"{GREEN}╚═════════════════════╝{RESET}"
         sys.stdout.write(f"\033[2K\r{status}")
@@ -689,6 +685,7 @@ class Venom:
             severity = vuln_type.split("Severity: ")[1].split(")")[0] if "Severity: " in vuln_type else "Low"
             color = GREEN if "Low" in severity else YELLOW if "Medium" in severity else ORANGE if "High" in severity else RED
 
+            # הצגת הפיילוד במלואו
             output = f"{color}╔════ XSS DETECTED [{timestamp}] ════╗{RESET}\n" \
                      f"{color}║{RESET} Type: {WHITE}{vuln_type}{RESET}\n" \
                      f"{color}║{RESET} URL: {WHITE}{full_url}{RESET}\n" \
@@ -728,6 +725,7 @@ class Venom:
                 for i, vuln in enumerate(self.vulnerabilities, 1):
                     severity = vuln['type'].split("Severity: ")[1].split(")")[0] if "Severity: " in vuln['type'] else "Low"
                     color = GREEN if "Low" in severity else YELLOW if "Medium" in severity else ORANGE if "High" in severity else RED
+                    # הצגת הפיילוד במלואו
                     findings += f"{color}Vulnerability #{i}{RESET}\n" \
                                 f"  {WHITE}Timestamp:{RESET} {vuln['timestamp']}\n" \
                                 f"  {WHITE}Type:{RESET} {vuln['type']}\n" \
