@@ -76,16 +76,17 @@ def get_banner_and_features() -> str:
 {GREEN}║           ╚═════╝ ╚══════╝╚═╝  ╚═══╝ ╚═════╝ ╚═╝     ╚═╝           ║{RESET}
 {GREEN}║                                                                    ║{RESET}
 {GREEN}║                  Venom Advanced XSS Scanner 2025                   ║{RESET}
-{GREEN}║                            Version 5.10                            ║{RESET}
+{GREEN}║                            Version 5.13                            ║{RESET}
 {GREEN}║    Made by: YANIV AVISROR | PENETRATION TESTER | ETHICAL HACKER    ║{RESET}
 {GREEN}╚════════════════════════════════════════════════════════════════════╝{RESET}
 """
     features = [
         "Advanced XSS detection with dynamic input analysis",
+        "Improved WebDriver stability and connection handling",
+        "Enhanced Reflected XSS detection without execution requirement",
         "WAF/CSP detection and bypass capabilities",
         "Payloads sourced from local files and GitHub",
         "AI-driven payload optimization (with API key)",
-        "Headless Chrome WebDriver for precise confirmation",
         "Stealth mode for discreet scanning"
     ]
     return banner + "\nCore Features:\n" + "\n".join(f"{GREEN}➤ {feature}{RESET}" for feature in features) + "\n"
@@ -168,7 +169,7 @@ Options:
 
 def fetch_payloads_from_github(urls: List[str], timeout: int) -> List[str]:
     payloads = []
-    headers = {'User-Agent': 'Venom-XSS-Scanner/5.10'}
+    headers = {'User-Agent': 'Venom-XSS-Scanner/5.13'}
     for url in urls:
         try:
             response = requests.get(url, headers=headers, timeout=timeout)
@@ -194,6 +195,11 @@ class PayloadGenerator:
             "<script>alert('venom')</script>",
             "<img src=x onerror=alert('venom')>",
             "<svg onload=alert('venom')>",
+            "<script>console.log('XSS')</script>",
+            "<img src=x onerror=console.log('XSS')>",
+            "<script>document.domain</script>",
+            "<script>setTimeout(() => console.log('XSS'), 100)</script>",
+            "javascript:alert('XSS')"  # Added for direct JS execution
         ]
         stealth_payloads = [
             "<script>alert('xss')</script>",
@@ -261,8 +267,8 @@ class AIAssistant:
             logging.info("AI assistance disabled (no API key or endpoint provided). Using default enhancement.")
 
     def suggest_payloads(self, response: Optional[str] = None, initial_run: bool = False, status_code: int = 200) -> List[str]:
-        executable_payloads = [p for p in self.payloads if 'alert(' in p.lower()]
-        other_payloads = [p for p in self.payloads if 'alert(' not in p.lower()]
+        executable_payloads = [p for p in self.payloads if 'alert(' in p.lower() or 'console.log(' in p.lower() or 'document.domain' in p.lower()]
+        other_payloads = [p for p in self.payloads if 'alert(' not in p.lower() and 'console.log(' not in p.lower() and 'document.domain' not in p.lower()]
         
         if status_code == 404 or "timed out" in str(response).lower():
             executable_payloads = sorted(executable_payloads, key=len)[:10]
@@ -329,8 +335,8 @@ class Venom:
     def __init__(self, args: argparse.Namespace):
         self.args = args
         self.session = requests.Session()
-        self.session.mount('http://', HTTPAdapter(max_retries=Retry(total=5, backoff_factor=1), pool_maxsize=20))
-        self.session.mount('https://', HTTPAdapter(max_retries=Retry(total=5, backoff_factor=1), pool_maxsize=20))
+        self.session.mount('http://', HTTPAdapter(max_retries=Retry(total=5, backoff_factor=1), pool_maxsize=100))  # Increased pool size further
+        self.session.mount('https://', HTTPAdapter(max_retries=Retry(total=5, backoff_factor=1), pool_maxsize=100))
         self.session.headers.update({
             'User-Agent': random.choice([
                 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
@@ -422,7 +428,13 @@ class Venom:
             if not subprocess.run(['pgrep', 'chromedriver'], capture_output=True).stdout:
                 break
         
-        for attempt in range(3):
+        user_agents = [
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.0 Safari/605.1.15',
+            'Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:89.0) Gecko/20100101 Firefox/89.0'
+        ]
+        
+        for attempt in range(5):
             temp_dir = None
             try:
                 temp_dir = tempfile.mkdtemp(prefix=f"venom_chrome_{int(time.time())}_")
@@ -436,11 +448,16 @@ class Venom:
                 options.add_argument('--disable-extensions')
                 options.add_argument('--window-size=1920,1080')
                 options.add_argument('--remote-debugging-port=0')
-                options.add_argument(f'--user-agent={self.session.headers["User-Agent"]}')
+                options.add_argument(f'--user-agent={random.choice(user_agents)}')
                 options.add_argument(f'--user-data-dir={temp_dir}')
                 options.add_argument('--disable-background-networking')
                 options.add_argument('--disable-client-side-phishing-detection')
                 options.add_argument('--disable-hang-monitor')
+                options.add_argument('--disable-features=IsolateOrigins,site-per-process')
+                options.add_argument('--disable-web-security')  # Added to potentially bypass restrictions
+                if attempt > 2:
+                    options.add_argument('--disable-accelerated-2d-canvas')
+                    options.add_argument('--disable-accelerated-video-decode')
                 if self.bypass_performed and self.waf_tech == 'cloudflare':
                     options.add_argument('--disable-web-security')
                 elif self.bypass_performed:
@@ -450,8 +467,8 @@ class Venom:
                 service = ChromeService(ChromeDriverManager().install())
                 driver = webdriver.Chrome(service=service, options=options)
                 driver.set_page_load_timeout(self.args.timeout * 3)
-                # Initialize console log capture
                 driver.execute_script("window.console.logs = []; console.log = function(msg) { window.console.logs.push(msg); };")
+                driver.execute_script("window.domChanges = []; window.oldHTML = document.body.innerHTML; setInterval(() => { if (document.body.innerHTML !== window.oldHTML) { window.domChanges.push({time: Date.now(), html: document.body.innerHTML}); window.oldHTML = document.body.innerHTML; } }, 100);")
                 logging.info(f"Chrome WebDriver initialized (Attempt {attempt+1}) with temp dir: {temp_dir}")
                 self.webdriver_failures = 0
                 return driver
@@ -461,26 +478,26 @@ class Venom:
                     shutil.rmtree(temp_dir, ignore_errors=True)
                 subprocess.run(['pkill', '-9', 'chromedriver'], check=False)
                 subprocess.run(['pkill', '-9', 'chrome'], check=False)
-                time.sleep(2 ** attempt)
+                time.sleep(2 ** min(attempt, 3))
                 self.webdriver_failures += 1
-        print(f"{RED}[!] WebDriver failed after 3 attempts. Falling back to HTTP-only testing.{RESET}")
+        print(f"{RED}[!] WebDriver failed after 5 attempts. Falling back to HTTP-only testing.{RESET}")
         return None
 
     def cleanup_browser(self) -> None:
         if self.driver:
-            for _ in range(3):
+            for _ in range(5):
                 try:
                     self.driver.quit()
-                    time.sleep(5)  # Increased delay for clean shutdown
+                    time.sleep(10)
                     logging.info("Chrome WebDriver closed successfully.")
                     break
                 except WebDriverException as e:
                     logging.warning(f"Failed to close Chrome WebDriver cleanly (Attempt {_+1}): {e}")
-                    time.sleep(5)
+                    time.sleep(10)
                     self.webdriver_failures += 1
             subprocess.run(['pkill', '-9', 'chromedriver'], check=False)
             subprocess.run(['pkill', '-9', 'chrome'], check=False)
-            time.sleep(3)  # Ensure processes terminate
+            time.sleep(5)
         for temp_dir in self.temp_dirs:
             if os.path.exists(temp_dir):
                 shutil.rmtree(temp_dir, ignore_errors=True)
@@ -599,7 +616,7 @@ class Venom:
                 except TimeoutException:
                     logging.warning(f"Timeout loading {url} in browser. Retrying.")
                     self.webdriver_failures += 1
-                    if self.webdriver_failures < 3:
+                    if self.webdriver_failures < 5:
                         self.cleanup_browser()
                         self.driver = self.setup_browser()
                         if self.driver:
@@ -607,7 +624,7 @@ class Venom:
                 except WebDriverException as e:
                     logging.warning(f"Browser crawl failed for {url}: {e}")
                     self.webdriver_failures += 1
-                    if self.webdriver_failures < 3:
+                    if self.webdriver_failures < 5:
                         self.cleanup_browser()
                         self.driver = self.setup_browser()
             common_paths = ['/', '/about', '/contact', '/search', '/downloads', '/index.php', '/login', '/register']
@@ -629,7 +646,7 @@ class Venom:
             if name and not tag.get('type') == 'hidden' and not tag.get('readonly') and not tag.get('disabled') and name not in param_keys:
                 param_keys.append(name)
         if not param_keys or url.endswith('/login'):
-            param_keys = ['log', 'pwd', 'rememberme', 'wp-submit', 'redirect_to']
+            param_keys = ['log', 'pwd', 'rememberme', 'wp-submit', 'redirect_to', 'p']
             if not soup.find_all('form'):
                 logging.warning(f"No forms found on {url}. Using default login parameters: {param_keys}")
                 print(f"{YELLOW}[!] No forms detected on {url}. Testing default login parameters.{RESET}")
@@ -667,17 +684,17 @@ class Venom:
         form_data = {inp.get('name'): inp.get('value', '') for inp in inputs if inp.get('name') and inp.get('type') != 'hidden' and not inp.get('readonly') and not inp.get('disabled')}
         if not form_data:
             form_data = {inp.get('id') or f"unnamed_{i}": '' for i, inp in enumerate(inputs) if inp.get('type') != 'hidden' and not inp.get('readonly') and not inp.get('disabled')}
-        # Batch test payloads to reduce WebDriver reloads
         for i in range(0, len(payloads), 5):
             batch = payloads[i:i+5]
             self.current_payload = ";".join(batch)
             self.total_tests.increment()
-            for attempt in range(2):
+            for attempt in range(3):
                 try:
                     self.driver.get(url)
                     time.sleep(2 if not self.args.stealth else random.uniform(5, 10))
                     WebDriverWait(self.driver, self.args.webdriver_timeout).until(EC.presence_of_element_located((By.TAG_NAME, "body")))
                     self.clear_alerts()
+                    self.driver.execute_script("window.domChanges = []; window.oldHTML = document.body.innerHTML;")
                     for inp in inputs:
                         name = inp.get('name') or inp.get('id')
                         if name and inp.get('type') != 'hidden' and not inp.get('readonly') and not inp.get('disabled'):
@@ -702,6 +719,8 @@ class Venom:
                                     logging.error(f"Selenium fallback failed for input {name} on {url}: {e2}")
                     submit_button = form.find('input', {'type': 'submit'}) or form.find('button', {'type': 'submit'})
                     alert_detected = False
+                    dom_changed = False
+                    js_executed = False
                     alert_text = None
                     try:
                         if submit_button:
@@ -711,70 +730,68 @@ class Venom:
                         else:
                             self.driver.execute_script("try { document.forms[0].submit(); } catch(e) { console.log('Form submit failed: ' + e); }")
                             logging.info(f"Submitted form via script on {url}")
-                        time.sleep(2)  # Wait for execution
+                        time.sleep(3)
                         try:
                             alert = WebDriverWait(self.driver, 5).until(EC.alert_is_present())
                             alert_text = alert.text
                             alert.accept()
                             logging.info(f"Alert detected: {alert_text}")
-                            if 'venom' in alert_text.lower() or 'xss' in alert_text.lower() or '1' in alert_text:
+                            if 'venom' in alert_text.lower() or 'xss' in alert_text.lower() or '1' in alert_text or self.domain in alert_text.lower():
                                 alert_detected = True
                         except TimeoutException:
                             console_logs = self.driver.execute_script("return window.console.logs || [];")
-                            if any('XSS' in str(log) or 'venom' in str(log) for log in console_logs):
+                            dom_changes = self.driver.execute_script("return window.domChanges || [];")
+                            if any('XSS' in str(log) or 'venom' in str(log) or self.domain in str(log).lower() for log in console_logs):
                                 logging.info(f"Console log detected indicating execution: {console_logs}")
-                                alert_detected = True
-                            else:
-                                before = self.driver.execute_script("return document.body.innerHTML;")
+                                js_executed = True
+                            elif dom_changes and any(any(p.lower() in change['html'].lower() for p in batch) for change in dom_changes):
+                                logging.info(f"DOM change detected: {dom_changes[-1]['html'][:100]}...")
+                                dom_changed = True
+                            elif any('<script>' in p.lower() or 'on' in p.lower() for p in batch):
+                                for payload in batch:
+                                    if '<script>' in payload.lower():
+                                        script_content = payload[payload.find('<script>')+8:payload.find('</script>')]
+                                        self.driver.execute_script(f"try {{ {script_content} }} catch(e) {{ console.log('Script failed: ' + e); }}")
+                                        logging.info(f"Executed script: {script_content}")
                                 time.sleep(1)
-                                after = self.driver.execute_script("return document.body.innerHTML;")
-                                if before != after and any(p.lower() in after.lower() for p in batch):
-                                    logging.info("DOM change detected, potential execution.")
-                                    alert_detected = True
-                                elif any('<script>' in p.lower() for p in batch):
-                                    for payload in batch:
-                                        if '<script>' in payload.lower():
-                                            script_content = payload[payload.find('<script>')+8:payload.find('</script>')]
-                                            self.driver.execute_script(f"try {{ {script_content} }} catch(e) {{ console.log('Script failed: ' + e); }}")
-                                            logging.info(f"Executed script: {script_content}")
-                                    time.sleep(1)
-                                    console_logs = self.driver.execute_script("return window.console.logs || [];")
-                                    if any('XSS' in str(log) or 'venom' in str(log) for log in console_logs):
-                                        logging.info(f"Console log detected after script execution: {console_logs}")
+                                console_logs = self.driver.execute_script("return window.console.logs || [];")
+                                dom_changes = self.driver.execute_script("return window.domChanges || [];")
+                                if any('XSS' in str(log) or 'venom' in str(log) or self.domain in str(log).lower() for log in console_logs):
+                                    logging.info(f"Console log detected after script execution: {console_logs}")
+                                    js_executed = True
+                                elif dom_changes and any(any(p.lower() in change['html'].lower() for p in batch) for change in dom_changes):
+                                    logging.info(f"DOM change detected after script: {dom_changes[-1]['html'][:100]}...")
+                                    dom_changed = True
+                                try:
+                                    alert = WebDriverWait(self.driver, 5).until(EC.alert_is_present())
+                                    alert_text = alert.text
+                                    alert.accept()
+                                    if 'venom' in alert_text.lower() or 'xss' in alert_text.lower() or '1' in alert_text or self.domain in alert_text.lower():
                                         alert_detected = True
-                                    try:
-                                        alert = WebDriverWait(self.driver, 5).until(EC.alert_is_present())
-                                        alert_text = alert.text
-                                        alert.accept()
-                                        if 'venom' in alert_text.lower() or 'xss' in alert_text.lower() or '1' in alert_text:
-                                            alert_detected = True
-                                    except TimeoutException:
-                                        pass
+                                except TimeoutException:
+                                    pass
                     except UnexpectedAlertPresentException as e:
                         logging.info(f"Unexpected alert: {str(e)}")
                         alert = Alert(self.driver)
                         alert_text = alert.text
                         alert.accept()
-                        if 'venom' in alert_text.lower() or 'xss' in alert_text.lower() or '1' in alert_text:
+                        if 'venom' in alert_text.lower() or 'xss' in alert_text.lower() or '1' in alert_text or self.domain in alert_text.lower():
                             alert_detected = True
                     
-                    if self.args.verbose:
-                        page_source = self.driver.page_source
-                        reflected = any(p.lower() in html.unescape(page_source).lower() for p in batch)
-                        in_executable_context = '<script' in page_source.lower() or 'on' in page_source.lower()
-                        logging.info(f"Form test: Alert not detected. Reflected: {reflected}, In Executable Context: {in_executable_context}")
-                        if reflected and in_executable_context and any(p.strip() for p in batch):
-                            severity = "High" if alert_detected else "Medium" if any("alert(" in p.lower() or "on" in p.lower() for p in batch) else "Low"
-                            if severity == "Low":
-                                logging.warning(f"Low-severity reflection detected, may not be exploitable: {';'.join(batch)}")
-                            self.report_vulnerability(url, ';'.join(batch), form_data, f"Form Submission XSS (Reflected, Severity: {severity})", popup=alert_detected)
-                        elif alert_detected:
-                            self.report_vulnerability(url, ';'.join(batch), form_data, "Form Submission XSS (Executed)", popup=True)
+                    page_source = self.driver.page_source
+                    reflected = any(p.lower() in html.unescape(page_source).lower() for p in batch)
+                    in_executable_context = '<script' in page_source.lower() or 'on' in page_source.lower() or 'eval' in page_source.lower() or 'setTimeout' in page_source.lower()
+                    logging.info(f"Form test: Alert: {alert_detected}, DOM Changed: {dom_changed}, JS Executed: {js_executed}, Reflected: {reflected}, Executable Context: {in_executable_context}")
+                    if alert_detected or js_executed:
+                        self.report_vulnerability(url, ';'.join(batch), form_data, "Form Submission XSS (Executed)", popup=True)
+                    elif dom_changed or (reflected and in_executable_context and any(p.strip() for p in batch)):
+                        severity = "High" if dom_changed else "Medium" if any("alert(" in p.lower() or "on" in p.lower() for p in batch) else "Low"
+                        self.report_vulnerability(url, ';'.join(batch), form_data, f"Form Submission XSS (Reflected, Severity: {severity})", popup=False, dom_changed=dom_changed, js_executed=js_executed)
                     break
                 except WebDriverException as e:
                     logging.warning(f"Form submission failed for {url}: {e}")
                     self.webdriver_failures += 1
-                    if self.webdriver_failures < 3 and attempt < 1:
+                    if self.webdriver_failures < 5 and attempt < 2:
                         self.cleanup_browser()
                         self.driver = self.setup_browser()
                     else:
@@ -824,8 +841,8 @@ class Venom:
                 full_url = url + ('?' + urlencode(params) if method == 'get' and params else '')
                 if self.driver:
                     self.test_dom_xss(full_url, payload, resp.text, injection_point)
-                elif self.args.verbose and payload.lower() in html.unescape(resp.text).lower():
-                    in_executable_context = '<script' in resp.text.lower() or 'on' in resp.text.lower()
+                elif payload.lower() in html.unescape(resp.text).lower():
+                    in_executable_context = '<script' in resp.text.lower() or 'on' in resp.text.lower() or 'eval' in resp.text.lower() or 'setTimeout' in resp.text.lower()
                     if in_executable_context and payload.strip():
                         logging.info(f"Potential XSS (reflected): {full_url}")
                         severity = "Medium" if "alert(" in payload.lower() or "on" in payload.lower() else "Low"
@@ -842,69 +859,83 @@ class Venom:
 
     def test_dom_xss(self, url: str, payload: str, response_text: str, injection_point: str) -> None:
         if not self.driver:
-            if self.args.verbose and payload.lower() in html.unescape(response_text).lower():
-                in_executable_context = '<script' in response_text.lower() or 'on' in response_text.lower()
+            if payload.lower() in html.unescape(response_text).lower():
+                in_executable_context = '<script' in response_text.lower() or 'on' in response_text.lower() or 'eval' in response_text.lower() or 'setTimeout' in response_text.lower()
                 if in_executable_context and payload.strip():
                     severity = "Medium" if "alert(" in payload.lower() or "on" in payload.lower() else "Low"
                     self.report_vulnerability(url, payload, {}, f"{injection_point} XSS (Reflected, Severity: {severity}, No WebDriver)", popup=False)
             return
-        for attempt in range(2):
+        for attempt in range(3):
             try:
                 self.driver.get(url)
                 time.sleep(2 if not self.args.stealth else random.uniform(5, 10))
                 WebDriverWait(self.driver, self.args.webdriver_timeout).until(EC.presence_of_element_located((By.TAG_NAME, "body")))
                 self.clear_alerts()
+                self.driver.execute_script("window.domChanges = []; window.oldHTML = document.body.innerHTML;")
                 alert_detected = False
+                dom_changed = False
+                js_executed = False
                 alert_text = None
                 try:
                     alert = WebDriverWait(self.driver, 5).until(EC.alert_is_present())
                     alert_text = alert.text
                     alert.accept()
                     logging.info(f"Immediate alert: {alert_text}")
-                    if 'venom' in alert_text.lower() or 'xss' in alert_text.lower() or '1' in alert_text:
+                    if 'venom' in alert_text.lower() or 'xss' in alert_text.lower() or '1' in alert_text or self.domain in alert_text.lower():
                         alert_detected = True
                 except TimeoutException:
                     console_logs = self.driver.execute_script("return window.console.logs || [];")
-                    if any('XSS' in str(log) or 'venom' in str(log) for log in console_logs):
+                    dom_changes = self.driver.execute_script("return window.domChanges || [];")
+                    if any('XSS' in str(log) or 'venom' in str(log) or self.domain in str(log).lower() for log in console_logs):
                         logging.info(f"Console log detected indicating execution: {console_logs}")
-                        alert_detected = True
-                    elif '<script>' in payload.lower():
-                        script_content = payload[payload.find('<script>')+8:payload.find('</script>')]
-                        self.driver.execute_script(f"try {{ {script_content} }} catch(e) {{ console.log('Script failed: ' + e); }}")
-                        logging.info(f"Executed script: {script_content}")
+                        js_executed = True
+                    elif dom_changes and any(payload.lower() in change['html'].lower() for change in dom_changes):
+                        logging.info(f"DOM change detected: {dom_changes[-1]['html'][:100]}...")
+                        dom_changed = True
+                    elif '<script>' in payload.lower() or 'on' in payload.lower() or 'javascript:' in payload.lower():
+                        if '<script>' in payload.lower():
+                            script_content = payload[payload.find('<script>')+8:payload.find('</script>')]
+                            self.driver.execute_script(f"try {{ {script_content} }} catch(e) {{ console.log('Script failed: ' + e); }}")
+                            logging.info(f"Executed script: {script_content}")
+                        elif 'javascript:' in payload.lower():
+                            script_content = payload.split('javascript:')[-1]
+                            self.driver.execute_script(f"try {{ {script_content} }} catch(e) {{ console.log('Script failed: ' + e); }}")
+                            logging.info(f"Executed javascript: {script_content}")
                         time.sleep(1)
                         console_logs = self.driver.execute_script("return window.console.logs || [];")
-                        if any('XSS' in str(log) or 'venom' in str(log) for log in console_logs):
+                        dom_changes = self.driver.execute_script("return window.domChanges || [];")
+                        if any('XSS' in str(log) or 'venom' in str(log) or self.domain in str(log).lower() for log in console_logs):
                             logging.info(f"Console log detected after script execution: {console_logs}")
-                            alert_detected = True
+                            js_executed = True
+                        elif dom_changes and any(payload.lower() in change['html'].lower() for change in dom_changes):
+                            logging.info(f"DOM change detected after script: {dom_changes[-1]['html'][:100]}...")
+                            dom_changed = True
                         try:
                             alert = WebDriverWait(self.driver, 5).until(EC.alert_is_present())
                             alert_text = alert.text
                             alert.accept()
-                            if 'venom' in alert_text.lower() or 'xss' in alert_text.lower() or '1' in alert_text:
+                            if 'venom' in alert_text.lower() or 'xss' in alert_text.lower() or '1' in alert_text or self.domain in alert_text.lower():
                                 alert_detected = True
                         except TimeoutException:
                             pass
-                if alert_detected:
+                page_source = self.driver.page_source
+                reflected = payload.lower() in html.unescape(page_source).lower()
+                in_executable_context = '<script' in page_source.lower() or 'on' in page_source.lower() or 'eval' in page_source.lower() or 'setTimeout' in page_source.lower()
+                logging.info(f"DOM test: Alert: {alert_detected}, DOM Changed: {dom_changed}, JS Executed: {js_executed}, Reflected: {reflected}, Executable Context: {in_executable_context}")
+                if alert_detected or js_executed:
                     self.report_vulnerability(url, payload, {}, f'{injection_point} XSS (Executed)', popup=True)
                     if self.ai_assistant:
                         self.ai_assistant.record_success(payload, 'js' if 'script' in payload.lower() else 'html')
-                    break
-                elif self.args.verbose:
-                    page_source = self.driver.page_source
-                    reflected = payload.lower() in html.unescape(page_source).lower()
-                    in_executable_context = '<script' in page_source.lower() or 'on' in page_source.lower()
-                    logging.info(f"DOM test: Alert not detected. Reflected: {reflected}, In Executable Context: {in_executable_context}")
-                    if reflected and in_executable_context and payload.strip():
-                        severity = "Medium" if "alert(" in payload.lower() or "on" in payload.lower() else "Low"
-                        self.report_vulnerability(url, payload, {}, f"{injection_point} XSS (Reflected, Severity: {severity})", popup=False)
+                elif dom_changed or (reflected and in_executable_context and payload.strip()):
+                    severity = "High" if dom_changed else "Medium" if "alert(" in payload.lower() or "on" in payload.lower() else "Low"
+                    self.report_vulnerability(url, payload, {}, f"{injection_point} XSS (Reflected, Severity: {severity})", popup=False, dom_changed=dom_changed, js_executed=js_executed)
                 break
             except UnexpectedAlertPresentException as e:
                 logging.info(f"Unexpected alert: {str(e)}")
                 alert = Alert(self.driver)
                 alert_text = alert.text
                 alert.accept()
-                if 'venom' in alert_text.lower() or 'xss' in alert_text.lower() or '1' in alert_text:
+                if 'venom' in alert_text.lower() or 'xss' in alert_text.lower() or '1' in alert_text or self.domain in alert_text.lower():
                     self.report_vulnerability(url, payload, {}, f'{injection_point} XSS (Executed)', popup=True)
                     if self.ai_assistant:
                         self.ai_assistant.record_success(payload, 'js' if 'script' in payload.lower() else 'html')
@@ -912,12 +943,12 @@ class Venom:
             except (WebDriverException, TimeoutException) as e:
                 logging.warning(f"DOM test failed for {url} (Attempt {attempt+1}): {e}")
                 self.webdriver_failures += 1
-                if self.webdriver_failures < 3:
+                if self.webdriver_failures < 5:
                     self.cleanup_browser()
                     self.driver = self.setup_browser()
-                    if not self.driver or attempt == 1:
-                        if self.args.verbose and payload.lower() in html.unescape(response_text).lower():
-                            in_executable_context = '<script' in response_text.lower() or 'on' in response_text.lower()
+                    if not self.driver or attempt == 2:
+                        if payload.lower() in html.unescape(response_text).lower():
+                            in_executable_context = '<script' in response_text.lower() or 'on' in response_text.lower() or 'eval' in response_text.lower() or 'setTimeout' in response_text.lower()
                             if in_executable_context and payload.strip():
                                 severity = "Medium" if "alert(" in payload.lower() or "on" in payload.lower() else "Low"
                                 self.report_vulnerability(url, payload, {}, f"{injection_point} XSS (Reflected, Severity: {severity}, WebDriver Failed)", popup=False)
@@ -937,7 +968,7 @@ class Venom:
         sys.stdout.write(f"\033[2K\r{status}")
         sys.stdout.flush()
 
-    def report_vulnerability(self, url: str, payload: str, params: dict, vuln_type: str = 'XSS', popup: bool = False) -> None:
+    def report_vulnerability(self, url: str, payload: str, params: dict, vuln_type: str = 'XSS', popup: bool = False, dom_changed: bool = False, js_executed: bool = False) -> None:
         with self.lock:
             if not payload.strip():
                 logging.info(f"Skipping empty payload report for {url}")
@@ -949,8 +980,8 @@ class Venom:
                 'payload': payload,
                 'type': vuln_type,
                 'timestamp': timestamp,
-                'executed': popup,
-                'context': 'JavaScript' if 'script' in payload.lower() else 'HTML',
+                'executed': popup or dom_changed or js_executed,
+                'context': 'JavaScript' if 'script' in payload.lower() or 'eval' in payload.lower() or 'setTimeout' in payload.lower() or 'javascript:' in payload.lower() else 'HTML',
                 'waf_status': self.waf_csp_status,
                 'bypass': "Yes" if self.bypass_performed or self.use_403_bypass else "No"
             }
@@ -966,6 +997,10 @@ class Venom:
                      f"{RED}║{RESET} Verify: {WHITE}curl \"{full_url}\" {RESET}\n"
             if popup:
                 output += f"{RED}║{RESET} Proof: {GREEN}Alert triggered in browser!{RESET}\n"
+            elif dom_changed:
+                output += f"{RED}║{RESET} Proof: {GREEN}DOM modified by payload!{RESET}\n"
+            elif js_executed:
+                output += f"{RED}║{RESET} Proof: {GREEN}JavaScript executed (console log)!{RESET}\n"
             output += f"{RED}╚════════════════════════════════════╝{RESET}"
             print(output, flush=True)
             logging.info(output)
@@ -1026,7 +1061,7 @@ class Venom:
             print(no_vulns)
             logging.info(no_vulns)
         
-        if self.webdriver_failures >= 3:
+        if self.webdriver_failures >= 5:
             warning = f"{YELLOW}[!] Warning: WebDriver encountered multiple failures, only reflected XSS reported.{RESET}\n"
             print(warning)
             logging.info(warning)
