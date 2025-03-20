@@ -29,7 +29,7 @@ logging.info("Logging initialized successfully")
 
 # Colors
 RED, GREEN, YELLOW, RESET, BOLD, WHITE = '\033[91m', '\033[92m', '\033[93m', '\033[0m', '\033[1m', '\033[97m'
-ORANGE = '\033[38;5;208m'  # Orange for High severity
+ORANGE = '\033[38;5;208m'
 
 # Thread-safe counter
 class ThreadSafeCounter:
@@ -82,7 +82,7 @@ def get_banner_and_features() -> str:
 def parse_args() -> argparse.Namespace:
     banner_and_features = get_banner_and_features()
     description = f"""{banner_and_features}
-Venom Advanced XSS Scanner is a professional-grade tool for ethical penetration testers to identify XSS vulnerabilities. This version supports HTTP and HTTPS protocols, optimizes payload selection, and enhances POST request handling with session management. Payloads are dynamically loaded and filtered based on response context.
+Venom Advanced XSS Scanner is a professional-grade tool for ethical penetration testers to identify XSS vulnerabilities. This version supports HTTP and HTTPS protocols, optimizes payload selection, and enhances POST request handling with session management.
 
 Usage:
   python3 venom.py <url> [options]
@@ -99,7 +99,7 @@ Options:
   --payloads-dir        Directory with custom payload files (default: ./payloads/)
   --timeout             HTTP request timeout in seconds (default: 10)
   --verbose             Enable detailed logging for diagnostics
-  --stealth             Activate stealth mode (default: auto-detected based on WAF)
+  --stealth             Force stealth mode (default: auto-detected based on WAF)
   --min-delay           Min delay between tests in seconds (default: auto-adjusted)
   --max-delay           Max delay between tests in seconds (default: auto-adjusted)
   --full-report         Show all vulnerabilities in report (default: first 10)
@@ -196,7 +196,10 @@ class PayloadGenerator:
             "<svg onload=alert('venom')>",
             "<script>console.log('XSS')</script>",
             "<iframe src=javascript:alert('XSS')>",
-            "<meta http-equiv='refresh' content='0;url=javascript:alert(\"XSS\")'>"
+            "<meta http-equiv='refresh' content='0;url=javascript:alert(\"XSS\")'>",
+            "<body onload=alert('XSS')>",
+            "\"><script>alert(1)</script>",
+            "javascript:alert('XSS')"
         ]
         stealth_payloads = [
             "<script>alert('xss')</script>",
@@ -255,16 +258,16 @@ class PayloadGenerator:
         logging.info(f"Loaded {len(payloads)} total payloads (local + GitHub)")
         return list(set(payloads))
 
-    def optimize_payloads(self, response_text: str) -> List[str]:
-        html_context = '<input' in response_text or '<form' in response_text
+    def optimize_payloads(self, response_text: str, active_params: List[str]) -> List[str]:
+        html_context = '<input' in response_text or '<form' in response_text or '<body' in response_text
         js_context = '<script' in response_text or 'javascript:' in response_text
         optimized = []
         for payload in self.payloads:
-            if len(payload) > 100:  # דלג על פיילודים ארוכים מדי
+            if len(payload) > 100:
                 continue
-            if html_context and ('on' in payload.lower() or 'src=' in payload.lower()):
+            if html_context and ('on' in payload.lower() or 'src=' in payload.lower() or '>' in payload or 'background' in payload.lower()):
                 optimized.append(payload)
-            elif js_context and ('alert(' in payload.lower() or 'console.log(' in payload.lower()):
+            elif js_context and ('alert(' in payload.lower() or 'console.log(' in payload.lower() or 'javascript:' in payload.lower()):
                 optimized.append(payload)
             elif '<script' in payload or '<iframe' in payload or '<meta' in payload:
                 optimized.append(payload)
@@ -286,7 +289,7 @@ class AIAssistant:
             logging.info("AI assistance disabled (no API key or endpoint). Using default enhancement.")
 
     def suggest_payloads(self, response: Optional[str] = None, initial_run: bool = False, status_code: int = 200) -> List[str]:
-        executable_payloads = [p for p in self.payloads if 'alert(' in p.lower() or 'on' in p.lower()]
+        executable_payloads = [p for p in self.payloads if 'alert(' in p.lower() or 'on' in p.lower() or 'javascript:' in p.lower()]
         other_payloads = [p for p in self.payloads if p not in executable_payloads]
         
         if status_code == 404 or "timed out" in str(response).lower():
@@ -397,6 +400,7 @@ class Venom:
         self.bypass_performed = False
         self.use_403_bypass = False
         self.is_waf_detected = False
+        self.active_params = []
 
         self.initial_waf_csp_check()
         if not self.args.stealth and self.is_waf_detected:
@@ -444,7 +448,7 @@ class Venom:
             logging.error(f"Connection check failed for {url}: {e}")
             return False
 
-    def calculate_total_tests(self, url: str, soup: BeautifulSoup) -> int:
+    def identify_active_params(self, url: str, soup: BeautifulSoup) -> List[str]:
         parsed = urlparse(url)
         params = parse_qs(parsed.query)
         param_keys = list(params.keys())
@@ -456,8 +460,26 @@ class Venom:
             name = tag.get('name') or tag.get('id')
             if name and name not in param_keys:
                 param_keys.append(name)
+        
+        active_params = []
+        base_response = self.session.get(url, timeout=self.args.timeout, verify=True).text
+        base_length = len(base_response)
+        
+        for param in param_keys:
+            test_url = f"{url.split('?', 1)[0]}?{param}=test"
+            try:
+                response = self.session.get(test_url, timeout=self.args.timeout, verify=True)
+                if len(response.text) != base_length:
+                    active_params.append(param)
+            except RequestException:
+                continue
+        
+        return active_params if active_params else param_keys
+
+    def calculate_total_tests(self, url: str, soup: BeautifulSoup) -> int:
+        self.active_params = self.identify_active_params(url, soup)
         form_params = sum(len(form.find_all(['input', 'textarea', 'select'])) for form in soup.find_all('form'))
-        return len(self.payloads) * max(len(param_keys) + form_params, 1)
+        return len(self.payloads) * max(len(self.active_params) + form_params, 1)
 
     def scan(self) -> None:
         logging.info(f"Starting scan on {self.args.url}")
@@ -503,7 +525,7 @@ class Venom:
             soup = BeautifulSoup(response.text, 'html.parser')
             with self.lock:
                 self.total_payloads += self.calculate_total_tests(url, soup) - len(self.payloads)
-            payloads = self.payload_generator.optimize_payloads(response.text)
+            payloads = self.payload_generator.optimize_payloads(response.text, self.active_params)
             if self.ai_assistant:
                 payloads = self.ai_assistant.suggest_payloads(response.text, initial_run=(depth == 0), status_code=response.status_code)
             self.test_injection_points(url, response, soup, payloads)
@@ -521,23 +543,12 @@ class Venom:
             logging.error(f"Crawl failed for {url}: {e}")
 
     def test_injection_points(self, url: str, response: requests.Response, soup: BeautifulSoup, payloads: List[str]) -> None:
-        parsed = urlparse(url)
-        params = parse_qs(parsed.query)
-        param_keys = list(params.keys())
-        for tag in soup.find_all(['input', 'textarea', 'select']):
-            name = tag.get('name') or tag.get('id')
-            if name and name not in param_keys:
-                param_keys.append(name)
-        additional_params = ['q', 'search', 'query', 'id', 'page']
-        for param in additional_params:
-            if param not in param_keys:
-                param_keys.append(param)
-        logging.info(f"Testing injection points with params: {param_keys} on {url}")
+        logging.info(f"Testing injection points with params: {self.active_params} on {url}")
         base_url = url.split('?', 1)[0]
         for payload in payloads:
             self.current_payload = payload
             self.total_tests.increment()
-            for param in param_keys:
+            for param in self.active_params:
                 test_params = {param: payload}
                 self.task_queue.put(lambda p=param, tp=test_params, pl=payload: self.test_request(base_url, tp, pl, self.args.method, injection_point=f"Query String ({p})"))
 
@@ -599,7 +610,7 @@ class Venom:
                     logging.info(f"Response content: {resp.text[:100]}...")
                 full_url = url + ('?' + urlencode(params) if method == 'get' and params else '')
                 
-                # בדיקת השתקפות מהירה עם re
+                # בדיקת השתקפות עם re
                 response_text = html.unescape(resp.text.lower())
                 reflected = re.search(re.escape(payload.lower()), response_text) is not None
                 
@@ -609,34 +620,47 @@ class Venom:
                 # בדיקת הקשר מבצעי עם BeautifulSoup
                 soup = BeautifulSoup(resp.text, 'html.parser')
                 in_executable_context = False
+                escapes_context = False
                 
-                for tag in soup.find_all(['script', 'iframe', 'meta', 'link']):
+                # בדיקת תגיות מבצעיות
+                for tag in soup.find_all(['script', 'iframe', 'meta', 'link', 'body', 'img', 'svg', 'div', 'input']):
                     if tag.name == 'script' and payload.lower() in tag.text.lower():
                         in_executable_context = True
                         break
-                    elif tag.name in ['iframe', 'meta', 'link'] and payload.lower() in str(tag.get('src', '') + tag.get('href', '') + tag.get('content', '')).lower():
-                        in_executable_context = True
-                        break
-                
-                if not in_executable_context:
-                    for tag in soup.find_all(True):
-                        for attr, value in tag.attrs.items():
-                            if attr.startswith('on') and payload.lower() in str(value).lower():
+                    elif tag.name in ['iframe', 'meta', 'link', 'body', 'img', 'svg', 'div', 'input']:
+                        attrs = tag.attrs
+                        for attr, value in attrs.items():
+                            if payload.lower() in str(value).lower() and (attr.startswith('on') or attr in ['src', 'href', 'content']):
                                 in_executable_context = True
                                 break
                         if in_executable_context:
                             break
                 
-                if not in_executable_context:
-                    for input_tag in soup.find_all('input'):
-                        if payload.lower() in str(input_tag.get('value', '')).lower():
-                            in_executable_context = False
+                # בדיקת השתקפות ב-value של input ובריחה מהקשר
+                in_input_value = False
+                for input_tag in soup.find_all('input'):
+                    value = str(input_tag.get('value', '')).lower()
+                    if payload.lower() in value:
+                        in_input_value = True
+                        input_str = str(input_tag).lower()
+                        post_payload = input_str[input_str.index(payload.lower()) + len(payload):]
+                        if '"' in post_payload or '>' in post_payload:
+                            escapes_context = True
+                        break
+                
+                # בדיקת השתקפות חופשית מחוץ לתגיות
+                if not in_executable_context and not in_input_value:
+                    text_nodes = [node.strip().lower() for node in soup.find_all(string=True) if node.strip()]
+                    for text in text_nodes:
+                        if payload.lower() in text and '<' not in text and '>' not in text:
+                            in_executable_context = True  # השתקפות חופשית עשויה להיות מבצעית בהקשרים מסוימים
                             break
                 
-                if reflected and in_executable_context and payload.strip():
-                    severity = "High" if "alert(" in payload.lower() or "on" in payload.lower() else "Medium"
+                # החלטה על דיווח
+                if reflected and (in_executable_context or (in_input_value and escapes_context)) and payload.strip():
+                    severity = "High" if "alert(" in payload.lower() or "on" in payload.lower() or "javascript:" in payload.lower() else "Medium"
                     self.report_vulnerability(full_url, payload, params, f"{injection_point} XSS (Executable, Severity: {severity})", popup=True)
-                elif reflected and not in_executable_context:
+                elif reflected and not in_input_value:
                     self.report_vulnerability(full_url, payload, params, f"{injection_point} XSS (Reflected Only, Severity: Low)", popup=False)
                 
                 self._display_status()
@@ -651,7 +675,6 @@ class Venom:
         elapsed = int(time.time() - self.start_time)
         progress = (self.total_tests.get() / self.total_payloads * 100) if self.total_payloads else 0
         progress = min(progress, 100.0)
-        # הצגת הפיילוד במלואו ללא קיצור
         status = f"{GREEN}╔════ Scan Status ════╗{RESET}\n" \
                  f"{GREEN}║{RESET} Progress: {WHITE}{progress:.1f}%{RESET}  Tests: {WHITE}{self.total_tests.get()}/{self.total_payloads}{RESET}  Vulns: {WHITE}{len(self.vulnerabilities)}{RESET}\n" \
                  f"{GREEN}║{RESET} Payload: {YELLOW}{self.current_payload}{RESET}\n" \
@@ -685,7 +708,6 @@ class Venom:
             severity = vuln_type.split("Severity: ")[1].split(")")[0] if "Severity: " in vuln_type else "Low"
             color = GREEN if "Low" in severity else YELLOW if "Medium" in severity else ORANGE if "High" in severity else RED
 
-            # הצגת הפיילוד במלואו
             output = f"{color}╔════ XSS DETECTED [{timestamp}] ════╗{RESET}\n" \
                      f"{color}║{RESET} Type: {WHITE}{vuln_type}{RESET}\n" \
                      f"{color}║{RESET} URL: {WHITE}{full_url}{RESET}\n" \
@@ -725,7 +747,6 @@ class Venom:
                 for i, vuln in enumerate(self.vulnerabilities, 1):
                     severity = vuln['type'].split("Severity: ")[1].split(")")[0] if "Severity: " in vuln['type'] else "Low"
                     color = GREEN if "Low" in severity else YELLOW if "Medium" in severity else ORANGE if "High" in severity else RED
-                    # הצגת הפיילוד במלואו
                     findings += f"{color}Vulnerability #{i}{RESET}\n" \
                                 f"  {WHITE}Timestamp:{RESET} {vuln['timestamp']}\n" \
                                 f"  {WHITE}Type:{RESET} {vuln['type']}\n" \
