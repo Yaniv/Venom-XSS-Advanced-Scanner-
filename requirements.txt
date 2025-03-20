@@ -1,6 +1,5 @@
-pip3 install requests beautifulsoup4 selenium webdriver-manager urllib3
+pip3 install requests beautifulsoup4  urllib3
 sudo apt install -y git
-apt install -y chromium chromium-driver
 sudo apt install -y libnss3 libxss1
 
 Permissions:
