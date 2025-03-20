@@ -1,53 +1,7 @@
-pip3 install requests beautifulsoup4  urllib3
-sudo apt install -y git
-sudo apt install -y libnss3 libxss1
+requests
+beautifulsoup4
+lxml
+urllib3
+typing-extensions
 
-Permissions:
-Root or Sudo Access: Required for system-wide installation (e.g., copying to /usr/local/bin) and process cleanup (pkill).
-File Permissions: Execute permissions for venom.py and read access to payload files.
-Network Configuration:
-Outbound access to HTTPS ports (443) for GitHub payload retrieval and target scanning.
-No specific inbound ports required unless running in a networked environment.
-
-clone
-git clone https://github.com/<username>/venom-xss-scanner.git
-cd venom-xss-scanner
-
-install
-sudo apt update && sudo apt install -y python3 python3-pip chromium chromium-driver
-pip3 install requests beautifulsoup4 selenium webdriver-manager urllib3
-
-sudo cp venom.py /usr/local/bin/venom.py
-sudo mkdir -p /usr/local/bin/payloads
-sudo cp payloads/* /usr/local/bin/payloads/
-sudo chmod +x /usr/local/bin/venom.py
-
-Payload Files:
-At least one payload file (e.g., advanced_xss.txt) must exist in the specified --payloads-dir (default: ./payloads/ or /usr/local/bin/payloads/).
-Minimum content: One valid XSS payload per line (e.g., <script>alert('venom')</script>).
-
-
-python3 venom.py http://testphp.vulnweb.com --scan-xss --verbose --headless --stealth
-
-Ethical Use Confirmation:
-User must input YES at the prompt (Ethical use only (YES/NO):) to proceed.
-Runtime Environment:
-Sufficient disk space for venom.log (grows with --verbose).
-No conflicting Chromedriver or Chrome processes (handled by pkill in code).
-Network Access:
-Target URL must be reachable (HTTP/HTTPS).
-GitHub access for payload fetching (optional, bypassed with local files).
-6. Optional Requirements
-AI Assistance:
-API Key: Required for --ai-assist (e.g., xAI key).
-API Endpoint: Configurable via environment variable AI_API_ENDPOINT or default (https://api.example.com/completions).
-Stable internet connection for API calls.
-Custom Headers:
-Optional -H flag for custom HTTP headers (e.g., -H 'User-Agent: CustomAgent').
-7. Maintenance Requirements
-Updates:
-Regular checks for updates to Python dependencies (pip3 list --outdated) and Chromium/Chromedriver compatibility.
-
-***** Payload Management *****
-Users can extend payload files in --payloads-dir with custom XSS vectors.
-Ensure payloads are sanitized (no ;&|><) to avoid script errors.
+pip install -r requirements.txt
