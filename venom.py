@@ -7,7 +7,7 @@ import time
 import argparse
 import threading
 import queue
-import random  # ייבוא מודול random לתיקון השגיאה
+import random
 from urllib.parse import urljoin, urlencode, urlparse, parse_qs
 from bs4 import BeautifulSoup
 from requests.adapters import HTTPAdapter
@@ -62,14 +62,15 @@ def get_banner_and_features() -> str:
 {GREEN}║           ╚═════╝ ╚══════╝╚═╝  ╚═══╝ ╚═════╝ ╚═╝     ╚═╝           ║{RESET}
 {GREEN}║                                                                    ║{RESET}
 {GREEN}║                  Venom Advanced XSS Scanner 2025                   ║{RESET}
-{GREEN}║                            Version 5.15                            ║{RESET}
+{GREEN}║                            Version 5.16                            ║{RESET}
 {GREEN}║    Made by: YANIV AVISROR | PENETRATION TESTER | ETHICAL HACKER    ║{RESET}
 {GREEN}╚════════════════════════════════════════════════════════════════════╝{RESET}
 """
     features = [
-        "Advanced XSS detection with dynamic input analysis",
+        "Advanced XSS detection with precise context analysis",
         "Session-aware POST requests with login support",
         "HTTP/HTTPS testing (no GUI/WebDriver)",
+        "Dynamic payload loading by category (waf_bypass, 403bypass, etc.)",
         "WAF/CSP detection and bypass capabilities",
         "Payloads sourced from local files and GitHub",
         "AI-driven payload optimization (with API key)",
@@ -80,7 +81,7 @@ def get_banner_and_features() -> str:
 def parse_args() -> argparse.Namespace:
     banner_and_features = get_banner_and_features()
     description = f"""{banner_and_features}
-Venom Advanced XSS Scanner is a professional-grade tool for ethical penetration testers to identify XSS vulnerabilities. This version supports HTTP and HTTPS protocols, removes GUI dependencies, and enhances POST request handling with session management. It can use an existing session or establish a new one via login.
+Venom Advanced XSS Scanner is a professional-grade tool for ethical penetration testers to identify XSS vulnerabilities. This version supports HTTP and HTTPS protocols, removes GUI dependencies, and enhances POST request handling with session management. Payloads are loaded dynamically from all .txt files in the specified directory, categorized for specific bypass needs (e.g., waf_bypass, 403bypass).
 
 Usage:
   python3 venom.py <url> [options]
@@ -164,12 +165,12 @@ Options:
 
 def fetch_payloads_from_github(urls: List[str], timeout: int) -> List[str]:
     payloads = []
-    headers = {'User-Agent': 'Venom-XSS-Scanner/5.15'}
+    headers = {'User-Agent': 'Venom-XSS-Scanner/5.16'}
     session = requests.Session()
     session.mount('https://', HTTPAdapter(max_retries=Retry(total=5, backoff_factor=2)))
     for url in urls:
         try:
-            response = session.get(url, headers=headers, timeout=timeout, verify=True)  # תמיכה ב-HTTPS עם אימות SSL
+            response = session.get(url, headers=headers, timeout=timeout, verify=True)
             response.raise_for_status()
             content = response.text
             extracted = re.findall(r'`([^`]+)`', content)
@@ -207,32 +208,46 @@ class PayloadGenerator:
         if not os.path.exists(self.payloads_dir):
             logging.warning(f"Payloads directory {self.payloads_dir} not found; using defaults.")
             return stealth_payloads if self.stealth else default_payloads
-        
+
+        category_map = {
+            'waf_bypass': 'waf_bypass.txt',
+            '403bypass': '403bypass.txt',
+            'default': ['advanced_xss.txt', 'xss_payloads.txt', 'basic_xss.txt']
+        }
+
         if self.bypass_needed:
-            bypass_file = os.path.join(self.payloads_dir, 'waf_bypass.txt')
-            if os.path.exists(bypass_file):
-                with open(bypass_file, 'r', encoding='utf-8') as f:
-                    payloads.extend(sanitize_input(line.strip()) for line in f if line.strip())
-                logging.info(f"Loaded bypass payloads from {bypass_file}")
-            else:
-                payloads = default_payloads
+            selected_category = 'waf_bypass'
         elif self.use_403_bypass:
-            bypass_file = os.path.join(self.payloads_dir, '403bypass.txt')
-            if os.path.exists(bypass_file):
-                with open(bypass_file, 'r', encoding='utf-8') as f:
-                    payloads.extend(sanitize_input(line.strip()) for line in f if line.strip())
-                logging.info(f"Loaded 403 bypass payloads from {bypass_file}")
-            else:
-                payloads = default_payloads
+            selected_category = '403bypass'
         else:
-            xss_files = ['advanced_xss.txt', 'xss_payloads.txt', 'basic_xss.txt']
-            for filename in xss_files:
+            selected_category = 'default'
+
+        all_files = [f for f in os.listdir(self.payloads_dir) if f.endswith('.txt')]
+        if not all_files:
+            logging.warning(f"No .txt files found in {self.payloads_dir}; using defaults.")
+            return stealth_payloads if self.stealth else default_payloads
+
+        if selected_category == 'default':
+            for filename in category_map['default']:
                 file_path = os.path.join(self.payloads_dir, filename)
-                if os.path.exists(file_path):
+                if file_path in [os.path.join(self.payloads_dir, f) for f in all_files]:
                     with open(file_path, 'r', encoding='utf-8') as f:
                         payloads.extend(sanitize_input(line.strip()) for line in f if line.strip())
-                    logging.info(f"Loaded XSS payloads from {file_path}")
-        
+                    logging.info(f"Loaded default payloads from {file_path}")
+        else:
+            file_path = os.path.join(self.payloads_dir, category_map[selected_category])
+            if file_path in [os.path.join(self.payloads_dir, f) for f in all_files]:
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    payloads.extend(sanitize_input(line.strip()) for line in f if line.strip())
+                logging.info(f"Loaded {selected_category} payloads from {file_path}")
+            else:
+                logging.warning(f"No {selected_category} file found; falling back to all .txt files.")
+                for filename in all_files:
+                    file_path = os.path.join(self.payloads_dir, filename)
+                    with open(file_path, 'r', encoding='utf-8') as f:
+                        payloads.extend(sanitize_input(line.strip()) for line in f if line.strip())
+                    logging.info(f"Loaded payloads from {file_path}")
+
         if not self.stealth:
             github_urls = [
                 "https://raw.githubusercontent.com/swisskyrepo/PayloadsAllTheThings/master/XSS%20Injection/1%20-%20XSS%20Filter%20Bypass.md",
@@ -243,6 +258,7 @@ class PayloadGenerator:
             payloads.extend(github_payloads)
 
         if not payloads:
+            logging.warning(f"No payloads loaded; using defaults.")
             payloads = stealth_payloads if self.stealth else default_payloads
         
         logging.info(f"Loaded {len(payloads)} total payloads (local + GitHub)")
@@ -346,7 +362,6 @@ class Venom:
             'Content-Type': 'application/x-www-form-urlencoded'
         })
 
-        # Handle custom headers
         if args.H:
             for header in args.H:
                 try:
@@ -355,14 +370,12 @@ class Venom:
                 except ValueError:
                     logging.warning(f"Invalid header format: {header}")
 
-        # Handle POST data
         self.post_data = {}
         if args.data:
             for pair in args.data.split('&'):
                 key, value = pair.split('=', 1)
                 self.post_data[key] = value
 
-        # Handle login to establish session
         if args.login_url and args.login_data:
             login_data = {}
             for pair in args.login_data.split('&'):
@@ -429,6 +442,11 @@ class Venom:
                     if bypass == "YES":
                         self.bypass_performed = True
                         logging.info("User confirmed WAF/CSP bypass attempt.")
+                        self.payload_generator = PayloadGenerator(self.args.payloads_dir, self.bypass_performed, self.use_403_bypass, self.args.stealth)
+                        self.payloads = self.payload_generator.generate()
+                        with self.lock:
+                            self.total_payloads = len(self.payloads)
+                        self.ai_assistant = AIAssistant(self.payloads, self.args.ai_key) if self.args.ai_assist else None
                         break
                     elif bypass == "NO":
                         logging.info("User declined WAF/CSP bypass.")
@@ -600,7 +618,7 @@ class Venom:
                     data=data if method == 'post' else None,
                     headers=self.session.headers,
                     timeout=self.args.timeout,
-                    verify=True  # אימות SSL ל-HTTPS
+                    verify=True
                 )
                 status_code = resp.status_code
                 
@@ -620,11 +638,44 @@ class Venom:
                     logging.info(f"Response content: {resp.text[:100]}...")
                 full_url = url + ('?' + urlencode(params) if method == 'get' and params else '')
                 
-                reflected = payload.lower() in html.unescape(resp.text).lower()
-                in_executable_context = '<script' in resp.text.lower() or 'on' in resp.text.lower() or 'eval' in resp.text.lower() or 'setTimeout' in resp.text.lower()
+                # שיפור זיהוי XSS עם ניתוח תגובה מלא
+                response_text = html.unescape(resp.text.lower())
+                reflected = payload.lower() in response_text
+                
+                # בדיקת הקשר מבצעי מדויק
+                in_executable_context = False
+                soup = BeautifulSoup(resp.text, 'html.parser')
+                
+                # בדיקה בתוך תגית <script>
+                for script in soup.find_all('script'):
+                    if payload.lower() in script.text.lower():
+                        in_executable_context = True
+                        break
+                
+                # בדיקת מאפייני on*
+                if not in_executable_context:
+                    for tag in soup.find_all(True):
+                        for attr, value in tag.attrs.items():
+                            if attr.startswith('on') and payload.lower() in str(value).lower():
+                                in_executable_context = True
+                                break
+                        if in_executable_context:
+                            break
+                
+                # בדיקת eval או setTimeout ישירות בתגובה
+                if not in_executable_context and ('eval(' in response_text or 'settimeout(' in response_text):
+                    eval_split = response_text.split('eval(')
+                    settimeout_split = response_text.split('settimeout(')
+                    if len(eval_split) > 1 and payload.lower() in eval_split[1]:
+                        in_executable_context = True
+                    elif len(settimeout_split) > 1 and payload.lower() in settimeout_split[1]:
+                        in_executable_context = True
+                
                 if reflected and in_executable_context and payload.strip():
-                    severity = "Medium" if "alert(" in payload.lower() or "on" in payload.lower() else "Low"
-                    self.report_vulnerability(full_url, payload, params, f"{injection_point} XSS (Reflected, Severity: {severity})", popup=False)
+                    severity = "High" if "alert(" in payload.lower() or "on" in payload.lower() else "Medium"
+                    self.report_vulnerability(full_url, payload, params, f"{injection_point} XSS (Executable, Severity: {severity})", popup=True)
+                elif reflected:
+                    self.report_vulnerability(full_url, payload, params, f"{injection_point} XSS (Reflected Only, Severity: Low)", popup=False)
                 
                 self._display_status()
                 break
@@ -664,7 +715,8 @@ class Venom:
                 'executed': popup,
                 'context': 'JavaScript' if 'script' in payload.lower() or 'eval' in payload.lower() or 'setTimeout' in payload.lower() or 'javascript:' in payload.lower() else 'HTML',
                 'waf_status': self.waf_csp_status,
-                'bypass': "Yes" if self.bypass_performed or self.use_403_bypass else "No"
+                'bypass': "Yes" if self.bypass_performed or self.use_403_bypass else "No",
+                'params': params
             }
             if vuln in self.vulnerabilities:
                 return
@@ -674,6 +726,7 @@ class Venom:
                      f"{RED}║{RESET} URL: {WHITE}{full_url}{RESET}\n" \
                      f"{RED}║{RESET} Payload: {YELLOW}{payload}{RESET}\n" \
                      f"{RED}║{RESET} Context: {WHITE}{vuln['context']}{RESET}\n" \
+                     f"{RED}║{RESET} Executed: {WHITE}{'Yes' if popup else 'No'}{RESET}\n" \
                      f"{RED}║{RESET} WAF/CSP: {WHITE}{self.waf_csp_status}{RESET} | Bypass: {WHITE}{'Yes' if self.bypass_performed or self.use_403_bypass else 'No'}{RESET}\n" \
                      f"{RED}║{RESET} Verify: {WHITE}curl -X {self.args.method.upper()} \"{full_url}\" {'-d \"' + urlencode(params) + '\"' if self.args.method == 'post' and params else ''}{RESET}\n"
             if popup:
@@ -694,7 +747,7 @@ class Venom:
                   f"{WHITE}URLs Scanned:{RESET} {len(self.visited_urls)}\n" \
                   f"{WHITE}Tests Performed:{RESET} {self.total_tests.get()}\n" \
                   f"{WHITE}Vulnerabilities Found:{RESET} {len(self.vulnerabilities)}\n" \
-                  f"{WHITE}Executed Vulnerabilities:{RESET} {executed_count}\n" \
+                  f"{WHITE}Executable Vulnerabilities:{RESET} {executed_count}\n" \
                   f"{WHITE}Reflected Only:{RESET} {len(self.vulnerabilities) - executed_count}\n"
         print(summary)
         logging.info(summary)
