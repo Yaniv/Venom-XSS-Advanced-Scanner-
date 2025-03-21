@@ -112,19 +112,19 @@ def get_banner_and_features() -> str:
 """
     features = [
         "Accurate XSS detection with context-aware analysis",
-        "Session-aware POST/GET scanning with login support",
+        "Smart session-aware POST/GET scanning with login support",
         "Support for custom POST requests from TXT files",
         "Dynamic response analysis with similarity checking",
         "WAF/CSP detection with adaptive strategies",
         "Payloads sourced from local files and GitHub",
         "AI-driven payload optimization with model selection"
     ]
-    return banner + "\n{CYAN}Core Features:{RESET}\n" + "\n".join(f"{GREEN}➤ {feature}{RESET}" for feature in features) + "\n"
+    return banner + "\n".join(f"{GREEN}{BOLD}●{RESET} {BOLD}{feature}{RESET}" for feature in features) + "\n"
 
 def parse_args() -> argparse.Namespace:
     banner_and_features = get_banner_and_features()
     description = f"""{banner_and_features}
-Venom Advanced XSS Scanner is a professional-grade tool for ethical penetration testers to identify XSS vulnerabilities with high accuracy. This version supports HTTP/HTTPS, POST/GET requests, custom POST from TXT files, login page scanning, and AI model selection.
+Venom Advanced XSS Scanner is a professional-grade tool for ethical penetration testers to identify XSS vulnerabilities with high accuracy. This version supports HTTP/HTTPS, smart POST/GET requests, custom POST from TXT files, session management, and AI model selection.
 
 Usage:
   python3 venom.py <url> [options]
@@ -144,14 +144,14 @@ Usage:
     parser.add_argument("--min-delay", type=float, help="Min delay between tests in seconds")
     parser.add_argument("--max-delay", type=float, help="Max delay between tests in seconds")
     parser.add_argument("--full-report", action="store_true", help="Show all vulnerabilities in report")
-    parser.add_argument("-H", action='append', help="Custom HTTP headers", default=[])
+    parser.add_argument("-H", action='append', help="Custom HTTP headers (e.g., 'Cookie: session=abc')", default=[])
     parser.add_argument("--method", choices=['get', 'post', 'both'], default='both', help="HTTP method to use")
-    parser.add_argument("--data", type=str, default=None, help="Data for POST request")
+    parser.add_argument("--data", type=str, default=None, help="Data for POST request (e.g., 'key1=value1&key2=value2')")
     parser.add_argument("--post-file", type=str, default=None, help="Path to TXT file containing a POST request")
     parser.add_argument("--payload-field", type=str, default=None, help="Field to inject payload into")
     parser.add_argument("--login-url", type=str, default=None, help="URL for login to establish session")
-    parser.add_argument("--login-data", type=str, default=None, help="Login credentials for POST")
-    parser.add_argument("--auto-login", action="store_true", help="Automatically detect and scan login pages", default=False)
+    parser.add_argument("--login-data", type=str, default=None, help="Login credentials for POST (e.g., 'username=admin&password=admin')")
+    parser.add_argument("--auto-login", action="store_true", help="Automatically detect and attempt login", default=False)
 
     print(banner_and_features)
     while True:
@@ -319,7 +319,7 @@ class PayloadGenerator:
                 optimized.append(payload)
             elif '<script' in payload or '<iframe' in payload or '<meta' in payload:
                 optimized.append(payload)
-        return optimized[:50] if optimized else self.payloads[:50]
+        return optimized if optimized else self.payloads
 
     def generate(self) -> List[str]:
         return self.payloads
@@ -415,13 +415,8 @@ class Venom:
             'Content-Type': 'application/x-www-form-urlencoded'
         })
 
-        if args.H:
-            for header in args.H:
-                try:
-                    key, value = header.split(':', 1)
-                    self.session.headers.update({sanitize_input(key.strip()): sanitize_input(value.strip())})
-                except ValueError:
-                    logging.warning(f"Invalid header format: {header}")
+        # Enhanced header handling
+        self.update_headers(args.H)
 
         self.post_data = {}
         if args.post_file and hasattr(args, 'post_data'):
@@ -465,7 +460,22 @@ class Venom:
         self.ai_assistant = AIAssistant(self.payloads, self.args.ai_key, self.args.ai_model) if self.args.ai_assist else None
         print(f"{GREEN}[+] AI Assistance: {'Enabled' if self.ai_assistant and self.args.ai_key else 'Disabled'}{RESET}")
 
-    def establish_session(self, login_url: str, login_data: str) -> None:
+    def update_headers(self, headers: List[str]) -> None:
+        """Update session headers dynamically with validation."""
+        for header in headers:
+            try:
+                key, value = header.split(':', 1)
+                sanitized_key = sanitize_input(key.strip())
+                sanitized_value = sanitize_input(value.strip())
+                self.session.headers.update({sanitized_key: sanitized_value})
+                logging.info(f"Added header: {sanitized_key}: {sanitized_value}")
+                print(f"{GREEN}[+] Added header: {CYAN}{sanitized_key}: {WHITE}{sanitized_value}{RESET}")
+            except ValueError:
+                logging.warning(f"Invalid header format: {header}")
+                print(f"{YELLOW}[!] Invalid header format: {header}{RESET}")
+
+    def establish_session(self, login_url: str, login_data: str) -> bool:
+        """Establish a session with the provided login URL and data."""
         login_dict = {}
         for pair in login_data.split('&'):
             try:
@@ -477,10 +487,59 @@ class Venom:
             login_response = self.session.post(login_url, data=login_dict, timeout=self.args.timeout, verify=True)
             if login_response.status_code in [200, 302]:
                 logging.info(f"Login successful to {login_url}")
+                print(f"{GREEN}[+] Session established successfully at {CYAN}{login_url}{RESET}")
+                return True
             else:
                 logging.warning(f"Login failed to {login_url} (Status: {login_response.status_code})")
+                print(f"{YELLOW}[!] Session establishment failed: Status {login_response.status_code}{RESET}")
+                return False
         except RequestException as e:
             logging.error(f"Login attempt failed: {e}")
+            print(f"{RED}[!] Session establishment failed: {e}{RESET}")
+            return False
+
+    def smart_session_management(self, url: str, soup: BeautifulSoup) -> bool:
+        """Smartly manage sessions by detecting login pages and establishing new sessions if needed."""
+        login_url = self.detect_login_page(url, soup)
+        if not login_url:
+            logging.info("No login page detected; using existing session.")
+            return True if self.session.cookies else False
+
+        # Check if current session is valid
+        try:
+            response = self.session.get(url, timeout=self.args.timeout, verify=True)
+            if "login" in response.url.lower() or response.status_code == 401:
+                logging.info("Current session invalid or expired; attempting to establish new session.")
+                print(f"{YELLOW}[!] Current session invalid or expired; attempting new session.{RESET}")
+            else:
+                return True
+        except RequestException:
+            pass
+
+        # Extract form fields dynamically
+        form = soup.find('form')
+        if not form:
+            return False
+        inputs = {inp.get('name'): inp.get('value', '') for inp in form.find_all('input') if inp.get('name')}
+        username_field = next((k for k in inputs if 'user' in k.lower() or 'email' in k.lower()), None)
+        password_field = next((k for k in inputs if 'pass' in k.lower()), None)
+
+        if not (username_field and password_field):
+            logging.warning("Could not identify login fields.")
+            print(f"{YELLOW}[!] Could not identify login fields.{RESET}")
+            return False
+
+        # Use provided credentials or default ones
+        if self.args.login_data:
+            credentials = self.args.login_data
+        else:
+            credentials = "username=admin&password=admin"  # Default fallback
+            print(f"{YELLOW}[!] No login data provided; using default credentials: admin/admin{RESET}")
+
+        success = self.establish_session(login_url, credentials)
+        if success and self.args.H:
+            self.update_headers(self.args.H)  # Re-apply headers after session establishment
+        return success
 
     def initial_waf_csp_check(self) -> None:
         try:
@@ -579,10 +638,12 @@ class Venom:
                 response = self.session.post(login_url, data=creds, timeout=self.args.timeout, verify=True)
                 if response.status_code in [200, 302] and "login" not in response.url.lower():
                     logging.info(f"Auto-login successful to {login_url} with {creds}")
+                    print(f"{GREEN}[+] Auto-login successful to {CYAN}{login_url}{RESET} with {creds}")
                     return True
             except RequestException as e:
                 logging.error(f"Auto-login attempt failed for {login_url}: {e}")
         logging.warning(f"Auto-login failed for {login_url} with default credentials")
+        print(f"{YELLOW}[!] Auto-login failed for {login_url}{RESET}")
         return False
 
     def calculate_total_tests(self, url: str, soup: BeautifulSoup) -> int:
@@ -627,16 +688,25 @@ class Venom:
             self.visited_urls.add(url)
         try:
             response = self.session.get(url, timeout=self.args.timeout, verify=True)
+            soup = BeautifulSoup(response.text, 'html.parser')
+            
+            # Smart session management
+            if not self.smart_session_management(url, soup):
+                if self.args.auto_login:
+                    login_url = self.detect_login_page(url, soup)
+                    if login_url:
+                        self.auto_login(login_url)
+            
             if response.status_code == 403 and not self.use_403_bypass:
                 self.use_403_bypass = True
                 self.payload_generator = PayloadGenerator(self.args.payloads_dir, self.bypass_performed, self.use_403_bypass, True)
                 self.payloads = self.payload_generator.generate()
                 self.total_payloads = len(self.payloads)
                 self.ai_assistant = AIAssistant(self.payloads, self.args.ai_key, self.args.ai_model) if self.args.ai_assist else None
+            
             logging.info(f"Crawled {url}: Status {response.status_code}, Length {len(response.text)}")
             if self.args.verbose:
                 logging.info(f"Response content: {response.text[:100]}...")
-            soup = BeautifulSoup(response.text, 'html.parser')
             with self.lock:
                 self.total_payloads += self.calculate_total_tests(url, soup) - len(self.payloads)
             payloads = self.payload_generator.optimize_payloads(response.text, self.active_params)
@@ -790,14 +860,13 @@ class Venom:
                 
                 if not reflected:
                     print(f"{YELLOW}[!] Payload not reflected in response{RESET}")
-                    break
                 if response_length == base_length and response_hash == base_hash:
                     print(f"{YELLOW}[!] Response identical to base response{RESET}")
                     break
                 
                 similarity = self.check_similarity(base_response, resp.text)
                 print(f"{PURPLE}Similarity to Base: {WHITE}{similarity:.2f}{RESET}")
-                if similarity > 0.85:  # Lowered threshold
+                if similarity > 0.85:
                     logging.info(f"Response too similar to base (similarity: {similarity:.2f}), skipping.")
                     print(f"{YELLOW}[!] Response too similar to base (Similarity: {similarity:.2f} > 0.85){RESET}")
                     break
@@ -840,13 +909,11 @@ class Venom:
                 verified = reflected and (in_executable_context or escapes_context)
                 print(f"{PURPLE}Reflected:{RESET} {GREEN}{'Yes' if reflected else 'No'}{RESET}, {PURPLE}Executable:{RESET} {GREEN}{'Yes' if in_executable_context or escapes_context else 'No'}{RESET}")
                 
-                if reflected and verified and payload.strip():
+                if reflected:
                     severity = "High" if "alert(" in payload.lower() or "on" in payload.lower() or "javascript:" in payload.lower() else "Medium"
-                    self.report_vulnerability(full_url, payload, params, f"{injection_point} XSS (Executable, Severity: {severity})", popup=True)
-                    if self.ai_assistant:
+                    self.report_vulnerability(full_url, payload, params, f"{injection_point} XSS ({'Executable' if verified else 'Reflected Only'}, Severity: {severity if verified else 'Low'})", popup=verified)
+                    if self.ai_assistant and verified:
                         self.ai_assistant.record_success(payload, "html" if in_input_value else "js", status_code)
-                elif reflected and not in_input_value and not in_executable_context and payload.strip():
-                    self.report_vulnerability(full_url, payload, params, f"{injection_point} XSS (Reflected Only, Severity: Low)", popup=False)
                 
                 self._display_status()
                 break
@@ -867,7 +934,7 @@ class Venom:
             return similarity
         except Exception as e:
             logging.error(f"Similarity check failed: {e}")
-            return 0.0  # Default to 0 to allow detection if similarity fails
+            return 0.0
 
     def _display_status(self) -> None:
         elapsed = int(time.time() - self.start_time)
