@@ -1,4 +1,8 @@
+![יניב](https://github.com/user-attachments/assets/bb26572f-2d8b-400e-b4e6-7d70536cc51e)
+
+
 About the Tool: Venom Advanced XSS Scanner 2025
+
 Overview
 Venom Advanced XSS Scanner 2025 is a powerful and advanced tool designed to assist ethical penetration testers in identifying Cross-Site Scripting (XSS) vulnerabilities in web applications. Developed in Python by Yaniv Avisror, a security researcher and ethical hacker, this tool combines sophisticated scanning techniques with context-aware analysis and AI-driven optimization to deliver precise and efficient results.
 
