@@ -30,28 +30,55 @@ Offers a full report option (--full-report) for exhaustive results.
 Available Options
 The tool provides a wide range of command-line options to customize its behavior:
 
-url: The target URL to scan (optional if provided via --post-file).
--w, --workers: Number of concurrent threads (default: 5, capped at 2 in stealth mode).
---ai-assist: Enable AI-driven payload optimization (requires --ai-key).
---ai-key: API key for AI assistance (e.g., xAI key).
---ai-model: AI model to use (e.g., xai-grok, openai-gpt3, default: xai-grok).
---scan-xss: Enable XSS scanning (required flag).
---payloads-dir: Directory containing custom payload files (default: ./payloads/).
---timeout: HTTP request timeout in seconds (default: 10).
---verbose: Enable detailed logging for diagnostics.
---stealth: Force stealth mode with increased delays and fewer workers.
---min-delay: Minimum delay between tests in seconds (auto-adjusted unless specified).
---max-delay: Maximum delay between tests in seconds (auto-adjusted unless specified).
---full-report: Display all vulnerabilities in the report (default: first 10).
--H: Add custom HTTP headers (e.g., -H 'Cookie: sessionid=xyz').
---method: HTTP method to use (get, post, both, default: both).
---data: POST data in key=value&key2=value2 format.
---post-file: Path to a TXT file containing a POST request (overrides --data).
---payload-field: Specific field to inject payloads into (e.g., password).
---login-url: URL for login to establish a session.
---login-data: Login credentials in key=value&key2=value2 format.
---auto-login: Automatically detect and attempt to scan login pages with default credentials.
+● Accurate XSS detection with context-aware analysis
+● Smart session-aware POST/GET scanning with login support
+● Support for custom POST requests from TXT files
+● Dynamic response analysis with similarity checking
+● WAF/CSP detection with adaptive strategies
+● Payloads sourced from local files and GitHub
+● AI-driven payload optimization with model selection
 
+Venom Advanced XSS Scanner is a professional-grade tool for ethical penetration testers to identify XSS vulnerabilities with high accuracy. This version supports HTTP/HTTPS, smart POST/GET requests, custom POST from TXT files, session management, and AI model selection.
 
-![venom 1](https://github.com/user-attachments/assets/ff915909-d07a-4856-9c14-9775b938631a)
+Usage:
+  python3 venom.py <url> [options]
+
+positional arguments:
+  url                   Target URL to scan
+
+options:
+  -h, --help            show this help message and exit
+  -w, --workers WORKERS
+                        Number of concurrent threads
+  --ai-assist           Enable AI-driven payload optimization
+  --ai-key AI_KEY       API key for AI assistance
+  --ai-model AI_MODEL   AI model to use
+  --scan-xss            Enable XSS scanning (required)
+  --payloads-dir PAYLOADS_DIR
+                        Directory with custom payload files
+  --timeout TIMEOUT     HTTP request timeout in seconds
+  --verbose             Enable detailed logging
+  --stealth             Force stealth mode
+  --min-delay MIN_DELAY
+                        Min delay between tests in seconds
+  --max-delay MAX_DELAY
+                        Max delay between tests in seconds
+  --full-report         Show all vulnerabilities in report
+  -H H                  Custom HTTP headers (e.g., 'Cookie: session=abc')
+  --method {get,post,both}
+                        HTTP method to use
+  --data DATA           Data for POST request (e.g., 'key1=value1&key2=value2')
+  --post-file POST_FILE
+                        Path to TXT file containing a POST request
+  --payload-field PAYLOAD_FIELD
+                        Field to inject payload into
+  --login-url LOGIN_URL
+                        URL for login to establish session
+  --login-data LOGIN_DATA
+                        Login credentials for POST (e.g., 'username=admin&password=admin')
+  --auto-login          Automatically detect and attempt login
+                                                                
+
+![venom2](https://github.com/user-attachments/assets/df8600d3-893d-4bfa-9737-093b6b969bb2)
+
 
