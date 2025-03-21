@@ -17,6 +17,8 @@ from typing import Optional, List, Dict
 import html
 from requests.exceptions import RequestException, SSLError, Timeout
 from concurrent.futures import ThreadPoolExecutor
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
 
 # Setup logging
 log_file = "venom.log"
@@ -29,9 +31,8 @@ logging.info("Logging initialized successfully")
 
 # Colors
 RED, GREEN, YELLOW, RESET, BOLD, WHITE = '\033[91m', '\033[92m', '\033[93m', '\033[0m', '\033[1m', '\033[97m'
-ORANGE = '\033[38;5;208m'
+ORANGE, BLUE, PURPLE, CYAN = '\033[38;5;208m', '\033[94m', '\033[95m', '\033[96m'
 
-# Thread-safe counter
 class ThreadSafeCounter:
     def __init__(self):
         self.value = 0
@@ -53,7 +54,6 @@ def sanitize_path(path: str) -> str:
     return os.path.abspath(os.path.normpath(path))
 
 def parse_post_file(file_path: str) -> tuple[Optional[str], Dict[str, str], Dict[str, str]]:
-    """Parse a TXT file containing a POST request into URL, headers, and data."""
     url = None
     headers = {}
     data = {}
@@ -62,13 +62,11 @@ def parse_post_file(file_path: str) -> tuple[Optional[str], Dict[str, str], Dict
             content = f.read().strip()
             lines = content.splitlines()
             
-            # Extract method and URL from first line (e.g., "POST /path HTTP/1.1")
             if lines and lines[0].startswith("POST "):
                 url_parts = lines[0].split()
                 if len(url_parts) >= 2:
-                    url = url_parts[1]  # Will be combined with host later
+                    url = url_parts[1]
             
-            # Parse headers and body
             in_headers = True
             body_start = 0
             for i, line in enumerate(lines[1:], 1):
@@ -80,11 +78,9 @@ def parse_post_file(file_path: str) -> tuple[Optional[str], Dict[str, str], Dict
                     key, value = line.split(':', 1)
                     headers[sanitize_input(key.strip())] = sanitize_input(value.strip())
             
-            # Extract URL from Host header if not already set
             if not url and 'Host' in headers:
                 url = f"http://{headers['Host']}{url or '/'}"
             
-            # Parse body (assuming application/x-www-form-urlencoded)
             if body_start > 0 and body_start < len(lines):
                 body = '&'.join(lines[body_start:]).strip()
                 for pair in body.split('&'):
@@ -101,29 +97,29 @@ def parse_post_file(file_path: str) -> tuple[Optional[str], Dict[str, str], Dict
 
 def get_banner_and_features() -> str:
     banner = f"""
-{GREEN}╔════════════════════════════════════════════════════════════════════╗{RESET}
-{GREEN}║          ██╗   ██╗███████╗███╗   ██╗ ██████╗ ███╗   ███╗           ║{RESET}
-{GREEN}║          ██║   ██║██╔════╝████╗  ██║██╔═══██╗████╗ ████║           ║{RESET}
-{GREEN}║          ██║   ██║█████╗  ██╔██╗ ██║██║   ██╗██╔████╔██║           ║{RESET}
-{GREEN}║          ██║   ██║██╔══╝  ██║╚██╗██║██║   ██╗██║╚██╔╝██║           ║{RESET}
-{GREEN}║          ╚██████╔╝███████╗██║ ╚████║╚██████╔╝██║ ╚═╝ ██║           ║{RESET}
-{GREEN}║           ╚═════╝ ╚══════╝╚═╝  ╚═══╝ ╚═════╝ ╚═╝     ╚═╝           ║{RESET}
-{GREEN}║                                                                    ║{RESET}
-{GREEN}║                  Venom Advanced XSS Scanner 2025                   ║{RESET}
-{GREEN}║                            Version 5.19                            ║{RESET}
-{GREEN}║    Made by: YANIV AVISROR | PENETRATION TESTER | ETHICAL HACKER    ║{RESET}
-{GREEN}╚════════════════════════════════════════════════════════════════════╝{RESET}
+{BLUE}╔════════════════════════════════════════════════════════════════════╗{RESET}
+{BLUE}║{RESET}          {CYAN}██╗   ██╗███████╗███╗   ██╗ ██████╗ ███╗   ███╗{RESET}           {BLUE}║{RESET}
+{BLUE}║{RESET}          {CYAN}██║   ██║██╔════╝████╗  ██║██╔═══██╗████╗ ████║{RESET}           {BLUE}║{RESET}
+{BLUE}║{RESET}          {CYAN}██║   ██║█████╗  ██╔██╗ ██║██║   ██╗██╔████╔██║{RESET}           {BLUE}║{RESET}
+{BLUE}║{RESET}          {CYAN}██║   ██║██╔══╝  ██║╚██╗██║██║   ██╗██║╚██╔╝██║{RESET}           {BLUE}║{RESET}
+{BLUE}║{RESET}          {CYAN}╚██████╔╝███████╗██║ ╚████║╚██████╔╝██║ ╚═╝ ██║{RESET}           {BLUE}║{RESET}
+{BLUE}║{RESET}           {CYAN}╚═════╝ ╚══════╝╚═╝  ╚═══╝ ╚═════╝ ╚═╝     ╚═╝{RESET}           {BLUE}║{RESET}
+{BLUE}║{RESET}                                                                    {BLUE}║{RESET}
+{BLUE}║{RESET}                  {PURPLE}Venom Advanced XSS Scanner 2025{RESET}                   {BLUE}║{RESET}
+{BLUE}║{RESET}                            {WHITE}Version 5.20{RESET}                            {BLUE}║{RESET}
+{BLUE}║{RESET}    {GREEN}Made by: YANIV AVISROR | PENETRATION TESTER | ETHICAL HACKER{RESET}    {BLUE}║{RESET}
+{BLUE}╚════════════════════════════════════════════════════════════════════╝{RESET}
 """
     features = [
         "Accurate XSS detection with context-aware analysis",
         "Session-aware POST/GET scanning with login support",
         "Support for custom POST requests from TXT files",
-        "Dynamic response analysis for improved detection",
+        "Dynamic response analysis with similarity checking",
         "WAF/CSP detection with adaptive strategies",
         "Payloads sourced from local files and GitHub",
         "AI-driven payload optimization with model selection"
     ]
-    return banner + "\nCore Features:\n" + "\n".join(f"{GREEN}➤ {feature}{RESET}" for feature in features) + "\n"
+    return banner + "\n{CYAN}Core Features:{RESET}\n" + "\n".join(f"{GREEN}➤ {feature}{RESET}" for feature in features) + "\n"
 
 def parse_args() -> argparse.Namespace:
     banner_and_features = get_banner_and_features()
@@ -132,36 +128,10 @@ Venom Advanced XSS Scanner is a professional-grade tool for ethical penetration 
 
 Usage:
   python3 venom.py <url> [options]
-
-Arguments:
-  url                   Target URL to scan (e.g., https://example.com)
-
-Options:
-  -h, --help            Show this help message and exit
-  -w, --workers         Number of concurrent threads (default: 5, capped at 2 in stealth mode)
-  --ai-assist           Enable AI-driven payload optimization (requires --ai-key)
-  --ai-key              API key for AI assistance (e.g., xAI key)
-  --ai-model            AI model to use (e.g., 'xai-grok', 'openai-gpt3', default: 'xai-grok')
-  --scan-xss            Enable XSS scanning (required)
-  --payloads-dir        Directory with custom payload files (default: ./payloads/)
-  --timeout             HTTP request timeout in seconds (default: 10)
-  --verbose             Enable detailed logging for diagnostics
-  --stealth             Force stealth mode (default: auto-detected based on WAF)
-  --min-delay           Min delay between tests in seconds (default: auto-adjusted)
-  --max-delay           Max delay between tests in seconds (default: auto-adjusted)
-  --full-report         Show all vulnerabilities in report (default: first 10)
-  -H                    Custom HTTP headers (e.g., -H 'Cookie: sessionid=xyz')
-  --method              HTTP method to use (default: both, options: get, post, both)
-  --data                Data for POST request in 'key=value&key2=value2' format
-  --post-file           Path to TXT file containing a POST request (overrides --data)
-  --payload-field       Field to inject payload into (e.g., 'password')
-  --login-url           URL for login to establish session (optional)
-  --login-data          Login credentials in 'key=value&key2=value2' format (optional)
-  --auto-login          Automatically detect and scan login pages (default: False)
 """
     
     parser = argparse.ArgumentParser(description=description, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("url", help="Target URL to scan", nargs='?')  # Optional if using --post-file
+    parser.add_argument("url", help="Target URL to scan", nargs='?')
     parser.add_argument("-w", "--workers", type=int, default=5, help="Number of concurrent threads")
     parser.add_argument("--ai-assist", action="store_true", help="Enable AI-driven payload optimization")
     parser.add_argument("--ai-key", type=str, default=None, help="API key for AI assistance")
@@ -238,19 +208,29 @@ Options:
 
 def fetch_payloads_from_github(urls: List[str], timeout: int) -> List[str]:
     payloads = []
-    headers = {'User-Agent': 'Venom-XSS-Scanner/5.19'}
+    headers = {'User-Agent': 'Venom-XSS-Scanner/5.20'}
     session = requests.Session()
     session.mount('https://', HTTPAdapter(max_retries=Retry(total=5, backoff_factor=2)))
-    for url in urls:
+    
+    github_urls = [
+        "https://raw.githubusercontent.com/payloadbox/xss-payload-list/master/Intruder/xss-payload-list.txt",
+        "https://raw.githubusercontent.com/swisskyrepo/PayloadsAllTheThings/master/XSS%20Injection/xss-payloads.txt",
+    ]
+    
+    for url in github_urls:
         try:
             response = session.get(url, headers=headers, timeout=timeout, verify=True)
             response.raise_for_status()
             content = response.text
-            extracted = re.findall(r'`([^`]+)`', content)
-            payloads.extend([sanitize_input(p.strip()) for p in extracted if p.strip() and '<' in p])
-            logging.info(f"Fetched {len(extracted)} payloads from {url}")
+            payloads.extend([sanitize_input(p.strip()) for p in content.splitlines() if p.strip() and '<' in p])
+            logging.info(f"Fetched {len(payloads)} payloads from {url}")
+            break
         except (RequestException, SSLError, Timeout) as e:
             logging.error(f"Failed to fetch payloads from {url}: {e}")
+            continue
+    
+    if not payloads:
+        logging.warning("No payloads fetched from GitHub; relying on local payloads only.")
     return payloads
 
 class PayloadGenerator:
@@ -317,11 +297,7 @@ class PayloadGenerator:
                     logging.info(f"Loaded payloads from {file_path}")
 
         if not self.stealth:
-            github_urls = [
-                "https://raw.githubusercontent.com/swisskyrepo/PayloadsAllTheThings/master/XSS%20Injection/1%20-%20XSS%20Filter%20Bypass.md",
-                "https://raw.githubusercontent.com/swisskyrepo/PayloadsAllTheThings/master/XSS%20Injection/2%20-%20XSS%20Polyglot.md"
-            ]
-            github_payloads = fetch_payloads_from_github(github_urls, 15)
+            github_payloads = fetch_payloads_from_github([], 15)
             payloads.extend(github_payloads)
 
         if not payloads:
@@ -335,7 +311,7 @@ class PayloadGenerator:
         js_context = '<script' in response_text or 'javascript:' in response_text
         optimized = []
         for payload in self.payloads:
-            if len(payload) > 100:
+            if len(payload) > 100 and not self.stealth:
                 continue
             if html_context and ('on' in payload.lower() or 'src=' in payload.lower() or '>' in payload or 'background' in payload.lower()):
                 optimized.append(payload)
@@ -363,7 +339,7 @@ class AIAssistant:
 
     def get_api_endpoint(self) -> Optional[str]:
         endpoints = {
-            "xai-grok": "https://api.xai.com/completions",
+            "xai-grok": "https://api.xai.com/v1/completions",
             "openai-gpt3": "https://api.openai.com/v1/completions"
         }
         return endpoints.get(self.model, None)
@@ -404,14 +380,11 @@ class AIAssistant:
             data = {
                 "prompt": f"Suggest optimized XSS payloads for this web response:\n{response[:500]}",
                 "max_tokens": 50,
-                "model": self.model if self.model == "openai-gpt3" else None
+                "model": "grok" if self.model == "xai-grok" else "text-davinci-003"
             }
             ai_response = requests.post(self.api_endpoint, json=data, headers=headers, timeout=10, verify=True)
             ai_response.raise_for_status()
-            if self.model == "xai-grok":
-                suggestions = ai_response.json().get("choices", [{}])[0].get("text", "").splitlines()
-            else:
-                suggestions = ai_response.json().get("choices", [{}])[0].get("text", "").splitlines()
+            suggestions = ai_response.json().get("choices", [{}])[0].get("text", "").splitlines()
             return [sanitize_input(s.strip()) for s in suggestions if s.strip() and '<' in s]
         except (RequestException, ValueError) as e:
             logging.error(f"AI API call failed for {self.model}: {e}")
@@ -455,8 +428,11 @@ class Venom:
             self.post_data = args.post_data
         elif args.data:
             for pair in args.data.split('&'):
-                key, value = pair.split('=', 1)
-                self.post_data[key] = value
+                try:
+                    key, value = pair.split('=', 1)
+                    self.post_data[key] = value
+                except ValueError:
+                    logging.warning(f"Invalid POST data format: {pair}")
 
         if args.login_url and args.login_data:
             self.establish_session(args.login_url, args.login_data)
@@ -492,8 +468,11 @@ class Venom:
     def establish_session(self, login_url: str, login_data: str) -> None:
         login_dict = {}
         for pair in login_data.split('&'):
-            key, value = pair.split('=', 1)
-            login_dict[key] = value
+            try:
+                key, value = pair.split('=', 1)
+                login_dict[key] = value
+            except ValueError:
+                logging.warning(f"Invalid login data format: {pair}")
         try:
             login_response = self.session.post(login_url, data=login_dict, timeout=self.args.timeout, verify=True)
             if login_response.status_code in [200, 302]:
@@ -549,7 +528,7 @@ class Venom:
             name = tag.get('name') or tag.get('id')
             if name and name not in param_keys:
                 param_keys.append(name)
-        if self.post_data:
+        if self.post_data and method == 'post':
             param_keys.extend(self.post_data.keys())
         
         active_params = []
@@ -571,10 +550,10 @@ class Venom:
                 ).text
                 if len(response) != base_length or hash(response) != base_hash:
                     active_params.append(param)
-        except RequestException:
-            pass
+        except RequestException as e:
+            logging.error(f"Parameter identification failed: {e}")
         
-        return active_params if active_params else param_keys
+        return active_params if active_params else param_keys[:5]
 
     def detect_login_page(self, url: str, soup: BeautifulSoup) -> Optional[str]:
         login_keywords = ['login', 'signin', 'log-in', 'sign-in', 'auth', 'authenticate']
@@ -614,7 +593,9 @@ class Venom:
 
     def scan(self) -> None:
         logging.info(f"Starting scan on {self.args.url}")
-        print(f"{GREEN}[+] Starting XSS scan on {self.args.url}{RESET}")
+        print(f"{BLUE}════════════════════════════════════════════════════{RESET}")
+        print(f"{GREEN}[+] Initiating XSS Scan on {CYAN}{self.args.url}{RESET}")
+        print(f"{BLUE}════════════════════════════════════════════════════{RESET}")
         if not self.check_connection(self.args.url):
             print(f"{RED}[!] Scan aborted: Target URL is not suitable.{RESET}")
             self.report()
@@ -631,6 +612,8 @@ class Venom:
                     time.sleep(delay)
                 except queue.Empty:
                     break
+                except Exception as e:
+                    logging.error(f"Thread execution failed: {e}")
         
         self.running = False
         self._display_status()
@@ -659,6 +642,7 @@ class Venom:
             payloads = self.payload_generator.optimize_payloads(response.text, self.active_params)
             if self.ai_assistant:
                 payloads = self.ai_assistant.suggest_payloads(response.text, initial_run=(depth == 0), status_code=response.status_code)
+            payloads = payloads[:100] if not self.args.full_report else payloads
             
             if response.status_code == 404 and len(self.visited_urls) == 1:
                 logging.warning(f"Initial URL {url} returned 404. Attempting fallback paths.")
@@ -698,6 +682,7 @@ class Venom:
     def test_injection_points(self, url: str, response: requests.Response, soup: BeautifulSoup, payloads: List[str], method: str) -> None:
         active_params = self.identify_active_params(url, soup, method)
         logging.info(f"Testing injection points with params: {active_params} on {url} using {method.upper()}")
+        print(f"{BLUE}[*] Testing {method.upper()} on {CYAN}{url}{RESET} with {len(active_params)} params and {len(payloads)} payloads")
         base_url = url.split('?', 1)[0]
         base_response = response.text
         base_length = len(base_response)
@@ -710,6 +695,9 @@ class Venom:
                 test_params = {param: payload}
                 self.task_queue.put(lambda p=param, tp=test_params, pl=payload, m=method, br=base_response, bl=base_length, bh=base_hash: 
                     self.test_request(base_url, tp, pl, m, injection_point=f"Query String ({p})", base_response=br, base_length=bl, base_hash=bh))
+        
+        logging.info(f"{method.upper()} testing completed with {len(active_params)} params and {len(payloads)} payloads")
+        print(f"{GREEN}[+] {method.upper()} testing completed{RESET}")
 
     def test_form(self, action: str, form: BeautifulSoup, payloads: List[str]) -> None:
         inputs = {inp.get('name'): inp.get('value', '') for inp in form.find_all(['input', 'textarea', 'select']) if inp.get('name')}
@@ -718,6 +706,7 @@ class Venom:
         if self.post_data:
             inputs.update(self.post_data)
         logging.info(f"Testing form inputs: {list(inputs.keys())} on {action}")
+        print(f"{BLUE}[*] Testing FORM on {CYAN}{action}{RESET} with {len(inputs)} inputs and {len(payloads)} payloads")
         try:
             base_response = self.session.post(action, data=inputs, timeout=self.args.timeout, verify=True).text
             base_length = len(base_response)
@@ -750,8 +739,16 @@ class Venom:
                 if attempt > 0:
                     self.session.headers['User-Agent'] = random.choice(user_agents)
                     logging.info(f"Retrying {method.upper()} {url} with new User-Agent")
+                    print(f"{YELLOW}[!] Retrying {method.upper()} with new User-Agent (Attempt {attempt+1}){RESET}")
                 
                 logging.info(f"Testing {method.upper()} {url} with payload: {payload} at {injection_point} (Attempt {attempt+1})")
+                print(f"{BLUE}╔════════════════════════════════════════════════════╗{RESET}")
+                print(f"{BLUE}║{RESET} {CYAN}Testing {method.upper()} Injection{RESET} {BLUE}║{RESET}")
+                print(f"{BLUE}║{RESET} {WHITE}URL:{RESET} {GREEN}{url}{RESET}")
+                print(f"{BLUE}║{RESET} {WHITE}Injection Point:{RESET} {YELLOW}{injection_point}{RESET}")
+                print(f"{BLUE}║{RESET} {WHITE}Payload:{RESET} {ORANGE}{payload}{RESET}")
+                print(f"{BLUE}╚════════════════════════════════════════════════════╝{RESET}")
+                
                 data = self.post_data.copy() if method == 'post' else None
                 if method == 'post' and params:
                     if self.args.payload_field and self.args.payload_field in data:
@@ -778,18 +775,33 @@ class Venom:
                 logging.info(f"Response status: {status_code}, length: {len(resp.text)}")
                 if self.args.verbose:
                     logging.info(f"Response content: {resp.text[:100]}...")
-                full_url = url + ('?' + urlencode(params) if method == 'get' and params else '')
+                print(f"{PURPLE}Response: {WHITE}Status {status_code}{RESET}, Length: {CYAN}{len(resp.text)}{RESET}")
                 
-                # Dynamic response analysis
+                full_url = url + ('?' + urlencode(params) if method == 'get' and params else '')
+                if method == 'get':
+                    parsed = urlparse(full_url)
+                    clean_params = parse_qs(parsed.query)
+                    full_url = parsed.scheme + "://" + parsed.netloc + parsed.path + '?' + urlencode(clean_params, doseq=True)
+                
                 response_text = html.unescape(resp.text.lower())
                 response_length = len(resp.text)
                 response_hash = hash(resp.text)
                 reflected = re.search(re.escape(payload.lower()), response_text) is not None
                 
-                if not reflected or (response_length == base_length and response_hash == base_hash):
+                if not reflected:
+                    print(f"{YELLOW}[!] Payload not reflected in response{RESET}")
+                    break
+                if response_length == base_length and response_hash == base_hash:
+                    print(f"{YELLOW}[!] Response identical to base response{RESET}")
                     break
                 
-                # Context-aware XSS detection
+                similarity = self.check_similarity(base_response, resp.text)
+                print(f"{PURPLE}Similarity to Base: {WHITE}{similarity:.2f}{RESET}")
+                if similarity > 0.85:  # Lowered threshold
+                    logging.info(f"Response too similar to base (similarity: {similarity:.2f}), skipping.")
+                    print(f"{YELLOW}[!] Response too similar to base (Similarity: {similarity:.2f} > 0.85){RESET}")
+                    break
+                
                 soup = BeautifulSoup(resp.text, 'html.parser')
                 in_executable_context = False
                 escapes_context = False
@@ -825,9 +837,14 @@ class Venom:
                             in_executable_context = True
                             break
                 
-                if reflected and (in_executable_context or (in_input_value and escapes_context)) and payload.strip():
+                verified = reflected and (in_executable_context or escapes_context)
+                print(f"{PURPLE}Reflected:{RESET} {GREEN}{'Yes' if reflected else 'No'}{RESET}, {PURPLE}Executable:{RESET} {GREEN}{'Yes' if in_executable_context or escapes_context else 'No'}{RESET}")
+                
+                if reflected and verified and payload.strip():
                     severity = "High" if "alert(" in payload.lower() or "on" in payload.lower() or "javascript:" in payload.lower() else "Medium"
                     self.report_vulnerability(full_url, payload, params, f"{injection_point} XSS (Executable, Severity: {severity})", popup=True)
+                    if self.ai_assistant:
+                        self.ai_assistant.record_success(payload, "html" if in_input_value else "js", status_code)
                 elif reflected and not in_input_value and not in_executable_context and payload.strip():
                     self.report_vulnerability(full_url, payload, params, f"{injection_point} XSS (Reflected Only, Severity: Low)", popup=False)
                 
@@ -836,18 +853,31 @@ class Venom:
                 
             except (RequestException, SSLError, Timeout) as e:
                 logging.warning(f"Request failed for {url}: {e} (Attempt {attempt+1})")
+                print(f"{RED}[!] Request failed: {e} (Attempt {attempt+1}){RESET}")
                 if attempt == retry_attempts - 1:
                     logging.error(f"All {retry_attempts} attempts failed for {url}")
+                    print(f"{RED}[!] All {retry_attempts} attempts failed{RESET}")
+
+    def check_similarity(self, base_response: str, test_response: str) -> float:
+        try:
+            vectorizer = TfidfVectorizer()
+            tfidf = vectorizer.fit_transform([base_response, test_response])
+            similarity = cosine_similarity(tfidf[0:1], tfidf[1:2])[0][0]
+            logging.debug(f"Similarity score: {similarity:.2f}")
+            return similarity
+        except Exception as e:
+            logging.error(f"Similarity check failed: {e}")
+            return 0.0  # Default to 0 to allow detection if similarity fails
 
     def _display_status(self) -> None:
         elapsed = int(time.time() - self.start_time)
         progress = (self.total_tests.get() / self.total_payloads * 100) if self.total_payloads else 0
         progress = min(progress, 100.0)
-        status = f"{GREEN}╔════ Scan Status ════╗{RESET}\n" \
-                 f"{GREEN}║{RESET} Progress: {WHITE}{progress:.1f}%{RESET}  Tests: {WHITE}{self.total_tests.get()}/{self.total_payloads}{RESET}  Vulns: {WHITE}{len(self.vulnerabilities)}{RESET}\n" \
-                 f"{GREEN}║{RESET} Payload: {YELLOW}{self.current_payload}{RESET}\n" \
-                 f"{GREEN}║{RESET} Elapsed: {WHITE}{elapsed}s{RESET}\n" \
-                 f"{GREEN}╚═════════════════════╝{RESET}"
+        status = f"{BLUE}╔════ Scan Progress Overview ═════╗{RESET}\n" \
+                 f"{BLUE}║{RESET} {CYAN}Progress:{RESET} {WHITE}{progress:.1f}%{RESET}  {CYAN}Tests:{RESET} {WHITE}{self.total_tests.get()}/{self.total_payloads}{RESET}  {CYAN}Vulns:{RESET} {RED}{len(self.vulnerabilities)}{RESET}\n" \
+                 f"{BLUE}║{RESET} {CYAN}Current Payload:{RESET} {ORANGE}{self.current_payload}{RESET}\n" \
+                 f"{BLUE}║{RESET} {CYAN}Elapsed Time:{RESET} {WHITE}{elapsed}s{RESET}\n" \
+                 f"{BLUE}╚═════════════════════════════════╝{RESET}"
         sys.stdout.write(f"\033[2K\r{status}")
         sys.stdout.flush()
 
@@ -856,10 +886,9 @@ class Venom:
             if not payload.strip():
                 logging.info(f"Skipping empty payload report for {url}")
                 return
-            full_url = url + ('?' + urlencode(params) if self.args.method in ['get', 'both'] and params else '')
             timestamp = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime())
             vuln = {
-                'url': full_url,
+                'url': url,
                 'payload': payload,
                 'type': vuln_type,
                 'timestamp': timestamp,
@@ -875,99 +904,103 @@ class Venom:
             self.vulnerabilities.append(vuln)
 
             severity = vuln_type.split("Severity: ")[1].split(")")[0] if "Severity: " in vuln_type else "Low"
-            color = GREEN if "Low" in severity else YELLOW if "Medium" in severity else ORANGE if "High" in severity else RED
-
-            output = f"{color}╔════ XSS DETECTED [{timestamp}] ════╗{RESET}\n" \
-                     f"{color}║{RESET} Type: {WHITE}{vuln_type}{RESET}\n" \
-                     f"{color}║{RESET} URL: {WHITE}{full_url}{RESET}\n" \
-                     f"{color}║{RESET} Payload: {YELLOW}{payload}{RESET}\n" \
-                     f"{color}║{RESET} Context: {WHITE}{vuln['context']}{RESET}\n" \
-                     f"{color}║{RESET} Executed: {WHITE}{'Yes' if popup else 'No'}{RESET}\n" \
-                     f"{color}║{RESET} WAF/CSP: {WHITE}{self.waf_csp_status}{RESET} | Bypass: {WHITE}{'Yes' if self.bypass_performed or self.use_403_bypass else 'No'}{RESET}\n" \
-                     f"{color}║{RESET} Verify: {WHITE}curl -X {vuln['method'].upper()} \"{full_url}\" {'-d \"' + urlencode(params) + '\"' if vuln['method'] == 'post' and params else ''}{RESET}\n"
+            severity_color = GREEN if "Low" in severity else ORANGE if "Medium" in severity else RED
+            output = f"{RED}╔════════════════════════════════════════════════════╗{RESET}\n" \
+                     f"{RED}║{RESET} {RED}XSS DETECTED [{timestamp}]{RESET} {RED}║{RESET}\n" \
+                     f"{RED}║{RESET} {WHITE}Type:{RESET} {CYAN}{vuln_type.split('Severity:')[0]}{RESET}{WHITE}Severity:{RESET} {severity_color}{severity}{RESET}\n" \
+                     f"{RED}║{RESET} {WHITE}URL:{RESET} {GREEN}{url}{RESET}\n" \
+                     f"{RED}║{RESET} {WHITE}Payload:{RESET} {ORANGE}{payload}{RESET}\n" \
+                     f"{RED}║{RESET} {WHITE}Context:{RESET} {PURPLE}{vuln['context']}{RESET}\n" \
+                     f"{RED}║{RESET} {WHITE}Executed:{RESET} {GREEN}{'Yes' if popup else 'No'}{RESET}\n" \
+                     f"{RED}║{RESET} {WHITE}WAF/CSP:{RESET} {YELLOW}{self.waf_csp_status}{RESET} | {WHITE}Bypass:{RESET} {YELLOW}{'Yes' if self.bypass_performed or self.use_403_bypass else 'No'}{RESET}\n" \
+                     f"{RED}║{RESET} {WHITE}Verify:{RESET} {BLUE}curl -X {vuln['method'].upper()} \"{url}\" {'-d \"' + urlencode(params) + '\"' if vuln['method'] == 'post' and params else ''}{RESET}\n"
             if popup and "High" in severity:
-                output += f"{color}║{RESET} Proof: {GREEN}Potential execution detected!{RESET}\n"
-            output += f"{color}╚════════════════════════════════════╝{RESET}"
+                output += f"{RED}║{RESET} {WHITE}Proof:{RESET} {GREEN}Potential execution detected!{RESET}\n"
+            output += f"{RED}╚════════════════════════════════════════════════════╝{RESET}"
             print(output, flush=True)
             logging.info(output)
 
     def report(self) -> None:
         runtime = int(time.time() - self.start_time)
         executed_count = sum(1 for v in self.vulnerabilities if v['executed'])
-        summary = f"{GREEN}╔════════════════════════════════════╗{RESET}\n" \
-                  f"{GREEN}║       Venom XSS Scan Summary       ║{RESET}\n" \
-                  f"{GREEN}╚════════════════════════════════════╝{RESET}\n" \
-                  f"{WHITE}Scan Started:{RESET} {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(self.start_time))}\n" \
-                  f"{WHITE}Scan Ended:{RESET} {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime())}\n" \
-                  f"{WHITE}Total Runtime:{RESET} {runtime} seconds\n" \
-                  f"{WHITE}URLs Scanned:{RESET} {len(self.visited_urls)}\n" \
-                  f"{WHITE}Tests Performed:{RESET} {self.total_tests.get()}\n" \
-                  f"{WHITE}Vulnerabilities Found:{RESET} {len(self.vulnerabilities)}\n" \
-                  f"{WHITE}Executable Vulnerabilities:{RESET} {executed_count}\n" \
-                  f"{WHITE}Reflected Only:{RESET} {len(self.vulnerabilities) - executed_count}\n"
+        summary = f"{BLUE}╔════════════════════════════════════════════════════╗{RESET}\n" \
+                  f"{BLUE}║{RESET}         {CYAN}Venom XSS Scan Summary{RESET}                 {BLUE}║{RESET}\n" \
+                  f"{BLUE}╚════════════════════════════════════════════════════╝{RESET}\n" \
+                  f"{WHITE}Scan Started:{RESET} {GREEN}{time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(self.start_time))}{RESET}\n" \
+                  f"{WHITE}Scan Ended:{RESET} {GREEN}{time.strftime('%Y-%m-%d %H:%M:%S', time.localtime())}{RESET}\n" \
+                  f"{WHITE}Total Runtime:{RESET} {YELLOW}{runtime} seconds{RESET}\n" \
+                  f"{WHITE}URLs Scanned:{RESET} {CYAN}{len(self.visited_urls)}{RESET}\n" \
+                  f"{WHITE}Tests Performed:{RESET} {CYAN}{self.total_tests.get()}{RESET}\n" \
+                  f"{WHITE}Vulnerabilities Found:{RESET} {RED}{len(self.vulnerabilities)}{RESET}\n" \
+                  f"{WHITE}Executable Vulnerabilities:{RESET} {ORANGE}{executed_count}{RESET}\n" \
+                  f"{WHITE}Reflected Only:{RESET} {YELLOW}{len(self.vulnerabilities) - executed_count}{RESET}\n"
         print(summary)
         logging.info(summary)
         
         if self.vulnerabilities:
-            findings = f"\n{GREEN}╔════════════════════════════════════╗{RESET}\n" \
-                       f"{GREEN}║       Detailed XSS Findings        ║{RESET}\n" \
-                       f"{GREEN}╚════════════════════════════════════╝{RESET}\n"
+            findings = f"\n{BLUE}╔════════════════════════════════════════════════════╗{RESET}\n" \
+                       f"{BLUE}║{RESET}         {CYAN}Detailed XSS Findings{RESET}                  {BLUE}║{RESET}\n" \
+                       f"{BLUE}╚════════════════════════════════════════════════════╝{RESET}\n"
             if self.args.full_report or len(self.vulnerabilities) <= 10:
                 for i, vuln in enumerate(self.vulnerabilities, 1):
                     severity = vuln['type'].split("Severity: ")[1].split(")")[0] if "Severity: " in vuln['type'] else "Low"
-                    color = GREEN if "Low" in severity else YELLOW if "Medium" in severity else ORANGE if "High" in severity else RED
+                    severity_color = GREEN if "Low" in severity else ORANGE if "Medium" in severity else RED
+                    color = RED
                     findings += f"{color}Vulnerability #{i}{RESET}\n" \
-                                f"  {WHITE}Timestamp:{RESET} {vuln['timestamp']}\n" \
-                                f"  {WHITE}Type:{RESET} {vuln['type']}\n" \
-                                f"  {WHITE}URL:{RESET} {vuln['url']}\n" \
-                                f"  {WHITE}Payload:{RESET} {vuln['payload']}\n" \
-                                f"  {WHITE}Context:{RESET} {vuln['context']}\n" \
-                                f"  {WHITE}Executed:{RESET} {'Yes' if vuln['executed'] else 'No'}\n" \
-                                f"  {WHITE}WAF/CSP Status:{RESET} {vuln['waf_status']}\n" \
-                                f"  {WHITE}Bypass Used:{RESET} {vuln['bypass']}\n" \
-                                f"  {WHITE}Verification:{RESET} curl -X {vuln['method'].upper()} \"{vuln['url']}\" {'-d \"' + urlencode(vuln['params']) + '\"' if vuln['method'] == 'post' and vuln['params'] else ''}\n" \
-                                f"{GREEN}{'─' * 50}{RESET}\n"
+                                f"  {WHITE}Timestamp:{RESET} {GREEN}{vuln['timestamp']}{RESET}\n" \
+                                f"  {WHITE}Type:{RESET} {CYAN}{vuln['type'].split('Severity:')[0]}{RESET}{WHITE}Severity:{RESET} {severity_color}{severity}{RESET}\n" \
+                                f"  {WHITE}URL:{RESET} {GREEN}{vuln['url']}{RESET}\n" \
+                                f"  {WHITE}Payload:{RESET} {ORANGE}{vuln['payload']}{RESET}\n" \
+                                f"  {WHITE}Context:{RESET} {PURPLE}{vuln['context']}{RESET}\n" \
+                                f"  {WHITE}Executed:{RESET} {GREEN}{'Yes' if vuln['executed'] else 'No'}{RESET}\n" \
+                                f"  {WHITE}WAF/CSP Status:{RESET} {YELLOW}{vuln['waf_status']}{RESET}\n" \
+                                f"  {WHITE}Bypass Used:{RESET} {YELLOW}{vuln['bypass']}{RESET}\n" \
+                                f"  {WHITE}Verification:{RESET} {BLUE}curl -X {vuln['method'].upper()} \"{vuln['url']}\" {'-d \"' + urlencode(vuln['params']) + '\"' if vuln['method'] == 'post' and vuln['params'] else ''}{RESET}\n" \
+                                f"{BLUE}{'═' * 50}{RESET}\n"
             else:
                 findings += f"Showing first 10 vulnerabilities (use --full-report for all):\n"
                 for i, vuln in enumerate(self.vulnerabilities[:10], 1):
                     severity = vuln['type'].split("Severity: ")[1].split(")")[0] if "Severity: " in vuln['type'] else "Low"
-                    color = GREEN if "Low" in severity else YELLOW if "Medium" in severity else ORANGE if "High" in severity else RED
+                    severity_color = GREEN if "Low" in severity else ORANGE if "Medium" in severity else RED
+                    color = RED
                     findings += f"{color}Vulnerability #{i}{RESET}\n" \
-                                f"  {WHITE}Timestamp:{RESET} {vuln['timestamp']}\n" \
-                                f"  {WHITE}Type:{RESET} {vuln['type']}\n" \
-                                f"  {WHITE}URL:{RESET} {vuln['url']}\n" \
-                                f"  {WHITE}Payload:{RESET} {vuln['payload']}\n" \
-                                f"  {WHITE}Context:{RESET} {vuln['context']}\n" \
-                                f"  {WHITE}Executed:{RESET} {'Yes' if vuln['executed'] else 'No'}\n" \
-                                f"  {WHITE}WAF/CSP Status:{RESET} {vuln['waf_status']}\n" \
-                                f"  {WHITE}Bypass Used:{RESET} {vuln['bypass']}\n" \
-                                f"  {WHITE}Verification:{RESET} curl -X {vuln['method'].upper()} \"{vuln['url']}\" {'-d \"' + urlencode(vuln['params']) + '\"' if vuln['method'] == 'post' and vuln['params'] else ''}\n" \
-                                f"{GREEN}{'─' * 50}{RESET}\n"
+                                f"  {WHITE}Timestamp:{RESET} {GREEN}{vuln['timestamp']}{RESET}\n" \
+                                f"  {WHITE}Type:{RESET} {CYAN}{vuln['type'].split('Severity:')[0]}{RESET}{WHITE}Severity:{RESET} {severity_color}{severity}{RESET}\n" \
+                                f"  {WHITE}URL:{RESET} {GREEN}{vuln['url']}{RESET}\n" \
+                                f"  {WHITE}Payload:{RESET} {ORANGE}{vuln['payload']}{RESET}\n" \
+                                f"  {WHITE}Context:{RESET} {PURPLE}{vuln['context']}{RESET}\n" \
+                                f"  {WHITE}Executed:{RESET} {GREEN}{'Yes' if vuln['executed'] else 'No'}{RESET}\n" \
+                                f"  {WHITE}WAF/CSP Status:{RESET} {YELLOW}{vuln['waf_status']}{RESET}\n" \
+                                f"  {WHITE}Bypass Used:{RESET} {YELLOW}{vuln['bypass']}{RESET}\n" \
+                                f"  {WHITE}Verification:{RESET} {BLUE}curl -X {vuln['method'].upper()} \"{vuln['url']}\" {'-d \"' + urlencode(vuln['params']) + '\"' if vuln['method'] == 'post' and vuln['params'] else ''}{RESET}\n" \
+                                f"{BLUE}{'═' * 50}{RESET}\n"
             findings += f"{GREEN}Total Confirmed XSS Vulnerabilities: {len(self.vulnerabilities)}{RESET}\n"
-            print(findings)
-            logging.info(findings)
+            with open("venom_report.txt", "w") as f:
+                f.write(summary + findings)
+            print(f"{GREEN}[+] Full report written to venom_report.txt{RESET}")
+            if len(self.vulnerabilities) <= 10 or not self.args.full_report:
+                print(findings)
         else:
             print(f"\n{YELLOW}[!] No XSS vulnerabilities detected.{RESET}\n")
             logging.info("No XSS vulnerabilities detected.")
 
 if __name__ == "__main__":
-    args = parse_args()
-    scanner = None
     try:
+        args = parse_args()
         scanner = Venom(args)
         scanner.scan()
     except KeyboardInterrupt:
         logging.info("Scan interrupted by user")
-        if scanner:
+        if 'scanner' in locals():
             scanner.running = False
             scanner.report()
         sys.exit(0)
     except Exception as e:
         logging.error(f"Fatal error: {e}")
-        if scanner:
+        if 'scanner' in locals():
             scanner.report()
         sys.exit(1)
     finally:
-        if scanner:
+        if 'scanner' in locals():
             scanner.report()
     input("Press Enter to exit...")
