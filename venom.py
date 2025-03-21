@@ -63,18 +63,17 @@ def get_banner_and_features() -> str:
 {GREEN}║           ╚═════╝ ╚══════╝╚═╝  ╚═══╝ ╚═════╝ ╚═╝     ╚═╝           ║{RESET}
 {GREEN}║                                                                    ║{RESET}
 {GREEN}║                  Venom Advanced XSS Scanner 2025                   ║{RESET}
-{GREEN}║                            Version 5.16                            ║{RESET}
+{GREEN}║                            Version 5.18                            ║{RESET}
 {GREEN}║    Made by: YANIV AVISROR | PENETRATION TESTER | ETHICAL HACKER    ║{RESET}
 {GREEN}╚════════════════════════════════════════════════════════════════════╝{RESET}
 """
     features = [
-        "Optimized XSS detection with precise context analysis",
-        "Session-aware POST requests with login support",
-        "HTTP/HTTPS testing (no GUI/WebDriver)",
-        "Dynamic payload selection by response context",
-        "WAF/CSP detection with adaptive delays",
+        "Accurate XSS detection with context-aware analysis",
+        "Session-aware POST/GET scanning with login support",
+        "Dynamic response analysis for improved detection",
+        "WAF/CSP detection with adaptive strategies",
         "Payloads sourced from local files and GitHub",
-        "AI-driven payload optimization (with API key)",
+        "AI-driven payload optimization with model selection",
         "Stealth mode with dynamic adjustments"
     ]
     return banner + "\nCore Features:\n" + "\n".join(f"{GREEN}➤ {feature}{RESET}" for feature in features) + "\n"
@@ -82,7 +81,7 @@ def get_banner_and_features() -> str:
 def parse_args() -> argparse.Namespace:
     banner_and_features = get_banner_and_features()
     description = f"""{banner_and_features}
-Venom Advanced XSS Scanner is a professional-grade tool for ethical penetration testers to identify XSS vulnerabilities. This version supports HTTP and HTTPS protocols, optimizes payload selection, and enhances POST request handling with session management.
+Venom Advanced XSS Scanner is a professional-grade tool for ethical penetration testers to identify XSS vulnerabilities with high accuracy. This version supports HTTP/HTTPS, POST/GET requests, login page scanning, and AI model selection.
 
 Usage:
   python3 venom.py <url> [options]
@@ -95,6 +94,7 @@ Options:
   -w, --workers         Number of concurrent threads (default: 5, capped at 2 in stealth mode)
   --ai-assist           Enable AI-driven payload optimization (requires --ai-key)
   --ai-key              API key for AI assistance (e.g., xAI key)
+  --ai-model            AI model to use (e.g., 'xai-grok', 'openai-gpt3', default: 'xai-grok')
   --scan-xss            Enable XSS scanning (required)
   --payloads-dir        Directory with custom payload files (default: ./payloads/)
   --timeout             HTTP request timeout in seconds (default: 10)
@@ -104,11 +104,12 @@ Options:
   --max-delay           Max delay between tests in seconds (default: auto-adjusted)
   --full-report         Show all vulnerabilities in report (default: first 10)
   -H                    Custom HTTP headers (e.g., -H 'Cookie: sessionid=xyz')
-  --method              HTTP method to use (default: get, options: get, post)
+  --method              HTTP method to use (default: both, options: get, post, both)
   --data                Data for POST request in 'key=value&key2=value2' format
   --payload-field       Field to inject payload into (e.g., 'password')
   --login-url           URL for login to establish session (optional)
   --login-data          Login credentials in 'key=value&key2=value2' format (optional)
+  --auto-login          Automatically detect and scan login pages (default: False)
 """
     
     parser = argparse.ArgumentParser(description=description, formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -116,6 +117,7 @@ Options:
     parser.add_argument("-w", "--workers", type=int, default=5, help="Number of concurrent threads")
     parser.add_argument("--ai-assist", action="store_true", help="Enable AI-driven payload optimization")
     parser.add_argument("--ai-key", type=str, default=None, help="API key for AI assistance")
+    parser.add_argument("--ai-model", type=str, default="xai-grok", help="AI model to use")
     parser.add_argument("--scan-xss", action="store_true", help="Enable XSS scanning (required)", required=True)
     parser.add_argument("--payloads-dir", default="./payloads/", help="Directory with custom payload files")
     parser.add_argument("--timeout", type=int, default=10, help="HTTP request timeout in seconds")
@@ -125,11 +127,12 @@ Options:
     parser.add_argument("--max-delay", type=float, help="Max delay between tests in seconds")
     parser.add_argument("--full-report", action="store_true", help="Show all vulnerabilities in report")
     parser.add_argument("-H", action='append', help="Custom HTTP headers", default=[])
-    parser.add_argument("--method", choices=['get', 'post'], default='get', help="HTTP method to use")
+    parser.add_argument("--method", choices=['get', 'post', 'both'], default='both', help="HTTP method to use")
     parser.add_argument("--data", type=str, default=None, help="Data for POST request")
     parser.add_argument("--payload-field", type=str, default=None, help="Field to inject payload into")
     parser.add_argument("--login-url", type=str, default=None, help="URL for login to establish session")
     parser.add_argument("--login-data", type=str, default=None, help="Login credentials for POST")
+    parser.add_argument("--auto-login", action="store_true", help="Automatically detect and scan login pages", default=False)
 
     print(banner_and_features)
     while True:
@@ -155,8 +158,8 @@ Options:
         args.max_delay = args.max_delay if args.max_delay is not None else 0.5
     if args.ai_assist and not args.ai_key:
         print(f"{YELLOW}[!] Warning: --ai-assist enabled without --ai-key. Using default payload enhancement.{RESET}")
-    if args.method == 'post' and not args.data:
-        print(f"{YELLOW}[!] Warning: POST method selected without --data. No data will be sent unless forms are detected.{RESET}")
+    if args.method == 'post' and not args.data and not args.auto_login:
+        print(f"{YELLOW}[!] Warning: POST method selected without --data or --auto-login. No data will be sent unless forms are detected.{RESET}")
     if args.login_url and not args.login_data:
         print(f"{RED}[!] Error: --login-url provided without --login-data. Exiting.{RESET}")
         sys.exit(1)
@@ -166,7 +169,7 @@ Options:
 
 def fetch_payloads_from_github(urls: List[str], timeout: int) -> List[str]:
     payloads = []
-    headers = {'User-Agent': 'Venom-XSS-Scanner/5.16'}
+    headers = {'User-Agent': 'Venom-XSS-Scanner/5.18'}
     session = requests.Session()
     session.mount('https://', HTTPAdapter(max_retries=Retry(total=5, backoff_factor=2)))
     for url in urls:
@@ -271,22 +274,30 @@ class PayloadGenerator:
                 optimized.append(payload)
             elif '<script' in payload or '<iframe' in payload or '<meta' in payload:
                 optimized.append(payload)
-        return optimized if optimized else self.payloads[:50]
+        return optimized[:50] if optimized else self.payloads[:50]
 
     def generate(self) -> List[str]:
         return self.payloads
 
 class AIAssistant:
-    def __init__(self, payloads: List[str], api_key: Optional[str] = None, api_endpoint: str = None):
+    def __init__(self, payloads: List[str], api_key: Optional[str] = None, model: str = "xai-grok"):
         self.payloads = payloads
         self.api_key = api_key
-        self.api_endpoint = api_endpoint or os.getenv("AI_API_ENDPOINT", "https://api.example.com/completions")
+        self.model = model
+        self.api_endpoint = self.get_api_endpoint()
         self.success_history: Dict[str, dict] = {}
         self.lock = threading.Lock()
         if self.api_key and self.api_endpoint:
-            logging.info(f"AI assistance enabled with API endpoint: {self.api_endpoint}")
+            logging.info(f"AI assistance enabled with model: {self.model}, endpoint: {self.api_endpoint}")
         else:
-            logging.info("AI assistance disabled (no API key or endpoint). Using default enhancement.")
+            logging.info("AI assistance disabled (no API key or invalid model). Using default enhancement.")
+
+    def get_api_endpoint(self) -> Optional[str]:
+        endpoints = {
+            "xai-grok": "https://api.xai.com/completions",
+            "openai-gpt3": "https://api.openai.com/v1/completions"
+        }
+        return endpoints.get(self.model, None)
 
     def suggest_payloads(self, response: Optional[str] = None, initial_run: bool = False, status_code: int = 200) -> List[str]:
         executable_payloads = [p for p in self.payloads if 'alert(' in p.lower() or 'on' in p.lower() or 'javascript:' in p.lower()]
@@ -300,7 +311,7 @@ class AIAssistant:
             if self.api_key and self.api_endpoint and response:
                 ai_suggestions = self.get_ai_suggestions(response)
                 executable_payloads.extend(ai_suggestions)
-                logging.info(f"AI-enhanced payload set generated: {len(ai_suggestions)} additional payloads.")
+                logging.info(f"AI-enhanced payload set generated with {self.model}: {len(ai_suggestions)} additional payloads.")
             return list(set(executable_payloads + other_payloads[:20]))
         
         if response and self.api_key and self.api_endpoint:
@@ -323,14 +334,18 @@ class AIAssistant:
             headers = {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}
             data = {
                 "prompt": f"Suggest optimized XSS payloads for this web response:\n{response[:500]}",
-                "max_tokens": 50
+                "max_tokens": 50,
+                "model": self.model if self.model == "openai-gpt3" else None
             }
             ai_response = requests.post(self.api_endpoint, json=data, headers=headers, timeout=10, verify=True)
             ai_response.raise_for_status()
-            suggestions = ai_response.json().get("choices", [{}])[0].get("text", "").splitlines()
+            if self.model == "xai-grok":
+                suggestions = ai_response.json().get("choices", [{}])[0].get("text", "").splitlines()
+            else:
+                suggestions = ai_response.json().get("choices", [{}])[0].get("text", "").splitlines()
             return [sanitize_input(s.strip()) for s in suggestions if s.strip() and '<' in s]
         except (RequestException, ValueError) as e:
-            logging.error(f"AI API call failed: {e}")
+            logging.error(f"AI API call failed for {self.model}: {e}")
             return []
 
     def record_success(self, payload: str, context: str = "unknown", status_code: int = 200) -> None:
@@ -373,18 +388,7 @@ class Venom:
                 self.post_data[key] = value
 
         if args.login_url and args.login_data:
-            login_data = {}
-            for pair in args.login_data.split('&'):
-                key, value = pair.split('=', 1)
-                login_data[key] = value
-            try:
-                login_response = self.session.post(args.login_url, data=login_data, timeout=args.timeout, verify=True)
-                if login_response.status_code in [200, 302]:
-                    logging.info(f"Login successful to {args.login_url}")
-                else:
-                    logging.warning(f"Login failed to {args.login_url} (Status: {login_response.status_code})")
-            except RequestException as e:
-                logging.error(f"Login attempt failed: {e}")
+            self.establish_session(args.login_url, args.login_data)
 
         self.task_queue = queue.Queue()
         self.lock = threading.Lock()
@@ -411,8 +415,22 @@ class Venom:
         self.payload_generator = PayloadGenerator(self.args.payloads_dir, self.bypass_performed, self.use_403_bypass, self.args.stealth or self.is_waf_detected)
         self.payloads = self.payload_generator.generate()
         self.total_payloads = len(self.payloads)
-        self.ai_assistant = AIAssistant(self.payloads, self.args.ai_key) if self.args.ai_assist else None
+        self.ai_assistant = AIAssistant(self.payloads, self.args.ai_key, self.args.ai_model) if self.args.ai_assist else None
         print(f"{GREEN}[+] AI Assistance: {'Enabled' if self.ai_assistant and self.args.ai_key else 'Disabled'}{RESET}")
+
+    def establish_session(self, login_url: str, login_data: str) -> None:
+        login_dict = {}
+        for pair in login_data.split('&'):
+            key, value = pair.split('=', 1)
+            login_dict[key] = value
+        try:
+            login_response = self.session.post(login_url, data=login_dict, timeout=self.args.timeout, verify=True)
+            if login_response.status_code in [200, 302]:
+                logging.info(f"Login successful to {login_url}")
+            else:
+                logging.warning(f"Login failed to {login_url} (Status: {login_response.status_code})")
+        except RequestException as e:
+            logging.error(f"Login attempt failed: {e}")
 
     def initial_waf_csp_check(self) -> None:
         try:
@@ -448,11 +466,11 @@ class Venom:
             logging.error(f"Connection check failed for {url}: {e}")
             return False
 
-    def identify_active_params(self, url: str, soup: BeautifulSoup) -> List[str]:
+    def identify_active_params(self, url: str, soup: BeautifulSoup, method: str = 'get') -> List[str]:
         parsed = urlparse(url)
         params = parse_qs(parsed.query)
         param_keys = list(params.keys())
-        additional_params = ['q', 'search', 'query', 'id', 'page']
+        additional_params = ['q', 'search', 'query', 'id', 'page', 'username', 'password', 'login', 'user', 'pass', 'email']
         for param in additional_params:
             if param not in param_keys:
                 param_keys.append(param)
@@ -462,24 +480,63 @@ class Venom:
                 param_keys.append(name)
         
         active_params = []
-        base_response = self.session.get(url, timeout=self.args.timeout, verify=True).text
-        base_length = len(base_response)
-        
-        for param in param_keys:
-            test_url = f"{url.split('?', 1)[0]}?{param}=test"
-            try:
-                response = self.session.get(test_url, timeout=self.args.timeout, verify=True)
-                if len(response.text) != base_length:
+        try:
+            base_response = self.session.request(method, url, timeout=self.args.timeout, verify=True).text
+            base_length = len(base_response)
+            base_hash = hash(base_response)
+            
+            for param in param_keys:
+                test_params = {param: "test"}
+                test_url = f"{url.split('?', 1)[0]}?{urlencode(test_params)}" if method == 'get' else url
+                response = self.session.request(
+                    method, test_url,
+                    params=test_params if method == 'get' else None,
+                    data=test_params if method == 'post' else None,
+                    timeout=self.args.timeout,
+                    verify=True
+                ).text
+                if len(response) != base_length or hash(response) != base_hash:
                     active_params.append(param)
-            except RequestException:
-                continue
+        except RequestException:
+            pass
         
         return active_params if active_params else param_keys
 
+    def detect_login_page(self, url: str, soup: BeautifulSoup) -> Optional[str]:
+        login_keywords = ['login', 'signin', 'log-in', 'sign-in', 'auth', 'authenticate']
+        if any(keyword in url.lower() for keyword in login_keywords):
+            return url
+        for form in soup.find_all('form'):
+            inputs = form.find_all('input')
+            has_username = any('username' in inp.get('name', '').lower() or 'user' in inp.get('name', '').lower() for inp in inputs)
+            has_password = any('password' in inp.get('name', '').lower() or 'pass' in inp.get('name', '').lower() for inp in inputs)
+            if has_username and has_password:
+                action = form.get('action', '')
+                return urljoin(url, action) if action else url
+        return None
+
+    def auto_login(self, login_url: str) -> bool:
+        default_creds = [
+            {"username": "admin", "password": "admin"},
+            {"username": "user", "password": "password"},
+            {"username": "test", "password": "test123"}
+        ]
+        for creds in default_creds:
+            try:
+                response = self.session.post(login_url, data=creds, timeout=self.args.timeout, verify=True)
+                if response.status_code in [200, 302] and "login" not in response.url.lower():
+                    logging.info(f"Auto-login successful to {login_url} with {creds}")
+                    return True
+            except RequestException as e:
+                logging.error(f"Auto-login attempt failed for {login_url}: {e}")
+        logging.warning(f"Auto-login failed for {login_url} with default credentials")
+        return False
+
     def calculate_total_tests(self, url: str, soup: BeautifulSoup) -> int:
-        self.active_params = self.identify_active_params(url, soup)
+        self.active_params = self.identify_active_params(url, soup, 'get')
         form_params = sum(len(form.find_all(['input', 'textarea', 'select'])) for form in soup.find_all('form'))
-        return len(self.payloads) * max(len(self.active_params) + form_params, 1)
+        methods = 2 if self.args.method == 'both' else 1
+        return len(self.payloads) * max(len(self.active_params) + form_params, 1) * methods
 
     def scan(self) -> None:
         logging.info(f"Starting scan on {self.args.url}")
@@ -518,7 +575,7 @@ class Venom:
                 self.payload_generator = PayloadGenerator(self.args.payloads_dir, self.bypass_performed, self.use_403_bypass, True)
                 self.payloads = self.payload_generator.generate()
                 self.total_payloads = len(self.payloads)
-                self.ai_assistant = AIAssistant(self.payloads, self.args.ai_key) if self.args.ai_assist else None
+                self.ai_assistant = AIAssistant(self.payloads, self.args.ai_key, self.args.ai_model) if self.args.ai_assist else None
             logging.info(f"Crawled {url}: Status {response.status_code}, Length {len(response.text)}")
             if self.args.verbose:
                 logging.info(f"Response content: {response.text[:100]}...")
@@ -528,11 +585,32 @@ class Venom:
             payloads = self.payload_generator.optimize_payloads(response.text, self.active_params)
             if self.ai_assistant:
                 payloads = self.ai_assistant.suggest_payloads(response.text, initial_run=(depth == 0), status_code=response.status_code)
-            self.test_injection_points(url, response, soup, payloads)
+            
+            if response.status_code == 404 and len(self.visited_urls) == 1:
+                logging.warning(f"Initial URL {url} returned 404. Attempting fallback paths.")
+                common_paths = ['/', '/index.php', '/login', '/search']
+                for path in common_paths:
+                    new_url = urljoin(url, path)
+                    if new_url not in self.visited_urls and urlparse(new_url).netloc == self.domain:
+                        self.task_queue.put(lambda u=new_url: self.crawl(u, depth + 1, max_depth))
+                return
+            
+            if self.args.method in ['get', 'both']:
+                self.test_injection_points(url, response, soup, payloads, 'get')
+            if self.args.method in ['post', 'both'] and soup.find_all('form'):
+                self.test_injection_points(url, response, soup, payloads, 'post')
+            
             for form in soup.find_all('form'):
                 action = urljoin(url, form.get('action', ''))
                 if urlparse(action).netloc == self.domain:
                     self.task_queue.put(lambda f=form, a=action, p=payloads: self.test_form(a, f, p))
+            
+            if self.args.auto_login:
+                login_url = self.detect_login_page(url, soup)
+                if login_url and login_url not in self.visited_urls:
+                    if self.auto_login(login_url):
+                        self.task_queue.put(lambda u=login_url: self.crawl(u, depth + 1, max_depth))
+            
             common_paths = ['/', '/search', '/index.php', '/login']
             for path in common_paths:
                 new_url = urljoin(url, path)
@@ -542,21 +620,34 @@ class Venom:
         except RequestException as e:
             logging.error(f"Crawl failed for {url}: {e}")
 
-    def test_injection_points(self, url: str, response: requests.Response, soup: BeautifulSoup, payloads: List[str]) -> None:
-        logging.info(f"Testing injection points with params: {self.active_params} on {url}")
+    def test_injection_points(self, url: str, response: requests.Response, soup: BeautifulSoup, payloads: List[str], method: str) -> None:
+        active_params = self.identify_active_params(url, soup, method)
+        logging.info(f"Testing injection points with params: {active_params} on {url} using {method.upper()}")
         base_url = url.split('?', 1)[0]
+        base_response = response.text
+        base_length = len(base_response)
+        base_hash = hash(base_response)
+        
         for payload in payloads:
             self.current_payload = payload
             self.total_tests.increment()
-            for param in self.active_params:
+            for param in active_params:
                 test_params = {param: payload}
-                self.task_queue.put(lambda p=param, tp=test_params, pl=payload: self.test_request(base_url, tp, pl, self.args.method, injection_point=f"Query String ({p})"))
+                self.task_queue.put(lambda p=param, tp=test_params, pl=payload, m=method, br=base_response, bl=base_length, bh=base_hash: 
+                    self.test_request(base_url, tp, pl, m, injection_point=f"Query String ({p})", base_response=br, base_length=bl, base_hash=bh))
 
     def test_form(self, action: str, form: BeautifulSoup, payloads: List[str]) -> None:
         inputs = {inp.get('name'): inp.get('value', '') for inp in form.find_all(['input', 'textarea', 'select']) if inp.get('name')}
         if not inputs:
             inputs = {tag.get('id') or f"unnamed_{i}": '' for i, tag in enumerate(form.find_all(['input', 'textarea', 'select']))}
         logging.info(f"Testing form inputs: {list(inputs.keys())} on {action}")
+        try:
+            base_response = self.session.post(action, data=inputs, timeout=self.args.timeout, verify=True).text
+            base_length = len(base_response)
+            base_hash = hash(base_response)
+        except RequestException:
+            base_response, base_length, base_hash = "", 0, 0
+        
         for name in inputs:
             for payload in payloads:
                 self.current_payload = payload
@@ -566,9 +657,11 @@ class Venom:
                     test_params[self.args.payload_field] = payload
                 else:
                     test_params[name] = payload
-                self.task_queue.put(lambda n=name, tp=test_params, pl=payload: self.test_request(action, tp, pl, 'post', injection_point=f"Form Field ({n})"))
+                self.task_queue.put(lambda n=name, tp=test_params, pl=payload, br=base_response, bl=base_length, bh=base_hash: 
+                    self.test_request(action, tp, pl, 'post', injection_point=f"Form Field ({n})", base_response=br, base_length=bl, base_hash=bh))
 
-    def test_request(self, url: str, params: dict, payload: str, method: str = 'get', injection_point: str = 'Unknown') -> None:
+    def test_request(self, url: str, params: dict, payload: str, method: str = 'get', injection_point: str = 'Unknown', 
+                    base_response: str = "", base_length: int = 0, base_hash: int = 0) -> None:
         retry_attempts = 3
         user_agents = [
             'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
@@ -610,19 +703,20 @@ class Venom:
                     logging.info(f"Response content: {resp.text[:100]}...")
                 full_url = url + ('?' + urlencode(params) if method == 'get' and params else '')
                 
-                # בדיקת השתקפות עם re
+                # Dynamic response analysis
                 response_text = html.unescape(resp.text.lower())
+                response_length = len(resp.text)
+                response_hash = hash(resp.text)
                 reflected = re.search(re.escape(payload.lower()), response_text) is not None
                 
-                if not reflected:
+                if not reflected or (response_length == base_length and response_hash == base_hash):
                     break
                 
-                # בדיקת הקשר מבצעי עם BeautifulSoup
+                # Context-aware XSS detection
                 soup = BeautifulSoup(resp.text, 'html.parser')
                 in_executable_context = False
                 escapes_context = False
                 
-                # בדיקת תגיות מבצעיות
                 for tag in soup.find_all(['script', 'iframe', 'meta', 'link', 'body', 'img', 'svg', 'div', 'input']):
                     if tag.name == 'script' and payload.lower() in tag.text.lower():
                         in_executable_context = True
@@ -636,7 +730,6 @@ class Venom:
                         if in_executable_context:
                             break
                 
-                # בדיקת השתקפות ב-value של input ובריחה מהקשר
                 in_input_value = False
                 for input_tag in soup.find_all('input'):
                     value = str(input_tag.get('value', '')).lower()
@@ -648,19 +741,17 @@ class Venom:
                             escapes_context = True
                         break
                 
-                # בדיקת השתקפות חופשית מחוץ לתגיות
                 if not in_executable_context and not in_input_value:
                     text_nodes = [node.strip().lower() for node in soup.find_all(string=True) if node.strip()]
                     for text in text_nodes:
                         if payload.lower() in text and '<' not in text and '>' not in text:
-                            in_executable_context = True  # השתקפות חופשית עשויה להיות מבצעית בהקשרים מסוימים
+                            in_executable_context = True
                             break
                 
-                # החלטה על דיווח
                 if reflected and (in_executable_context or (in_input_value and escapes_context)) and payload.strip():
                     severity = "High" if "alert(" in payload.lower() or "on" in payload.lower() or "javascript:" in payload.lower() else "Medium"
                     self.report_vulnerability(full_url, payload, params, f"{injection_point} XSS (Executable, Severity: {severity})", popup=True)
-                elif reflected and not in_input_value:
+                elif reflected and not in_input_value and not in_executable_context and payload.strip():
                     self.report_vulnerability(full_url, payload, params, f"{injection_point} XSS (Reflected Only, Severity: Low)", popup=False)
                 
                 self._display_status()
@@ -688,7 +779,7 @@ class Venom:
             if not payload.strip():
                 logging.info(f"Skipping empty payload report for {url}")
                 return
-            full_url = url + ('?' + urlencode(params) if self.args.method == 'get' and params else '')
+            full_url = url + ('?' + urlencode(params) if self.args.method in ['get', 'both'] and params else '')
             timestamp = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime())
             vuln = {
                 'url': full_url,
@@ -699,7 +790,8 @@ class Venom:
                 'context': 'JavaScript' if 'script' in payload.lower() or 'javascript:' in payload.lower() else 'HTML',
                 'waf_status': self.waf_csp_status,
                 'bypass': "Yes" if self.bypass_performed or self.use_403_bypass else "No",
-                'params': params
+                'params': params,
+                'method': self.args.method if self.args.method != 'both' else 'post' if 'Form' in vuln_type else 'get'
             }
             if vuln in self.vulnerabilities:
                 return
@@ -715,7 +807,7 @@ class Venom:
                      f"{color}║{RESET} Context: {WHITE}{vuln['context']}{RESET}\n" \
                      f"{color}║{RESET} Executed: {WHITE}{'Yes' if popup else 'No'}{RESET}\n" \
                      f"{color}║{RESET} WAF/CSP: {WHITE}{self.waf_csp_status}{RESET} | Bypass: {WHITE}{'Yes' if self.bypass_performed or self.use_403_bypass else 'No'}{RESET}\n" \
-                     f"{color}║{RESET} Verify: {WHITE}curl -X {self.args.method.upper()} \"{full_url}\" {'-d \"' + urlencode(params) + '\"' if self.args.method == 'post' and params else ''}{RESET}\n"
+                     f"{color}║{RESET} Verify: {WHITE}curl -X {vuln['method'].upper()} \"{full_url}\" {'-d \"' + urlencode(params) + '\"' if vuln['method'] == 'post' and params else ''}{RESET}\n"
             if popup and "High" in severity:
                 output += f"{color}║{RESET} Proof: {GREEN}Potential execution detected!{RESET}\n"
             output += f"{color}╚════════════════════════════════════╝{RESET}"
@@ -756,7 +848,7 @@ class Venom:
                                 f"  {WHITE}Executed:{RESET} {'Yes' if vuln['executed'] else 'No'}\n" \
                                 f"  {WHITE}WAF/CSP Status:{RESET} {vuln['waf_status']}\n" \
                                 f"  {WHITE}Bypass Used:{RESET} {vuln['bypass']}\n" \
-                                f"  {WHITE}Verification:{RESET} curl -X {self.args.method.upper()} \"{vuln['url']}\" {'-d \"' + urlencode(vuln['params']) + '\"' if self.args.method == 'post' and vuln['params'] else ''}\n" \
+                                f"  {WHITE}Verification:{RESET} curl -X {vuln['method'].upper()} \"{vuln['url']}\" {'-d \"' + urlencode(vuln['params']) + '\"' if vuln['method'] == 'post' and vuln['params'] else ''}\n" \
                                 f"{GREEN}{'─' * 50}{RESET}\n"
             else:
                 findings += f"Showing first 10 vulnerabilities (use --full-report for all):\n"
@@ -772,7 +864,7 @@ class Venom:
                                 f"  {WHITE}Executed:{RESET} {'Yes' if vuln['executed'] else 'No'}\n" \
                                 f"  {WHITE}WAF/CSP Status:{RESET} {vuln['waf_status']}\n" \
                                 f"  {WHITE}Bypass Used:{RESET} {vuln['bypass']}\n" \
-                                f"  {WHITE}Verification:{RESET} curl -X {self.args.method.upper()} \"{vuln['url']}\" {'-d \"' + urlencode(vuln['params']) + '\"' if self.args.method == 'post' and vuln['params'] else ''}\n" \
+                                f"  {WHITE}Verification:{RESET} curl -X {vuln['method'].upper()} \"{vuln['url']}\" {'-d \"' + urlencode(vuln['params']) + '\"' if vuln['method'] == 'post' and vuln['params'] else ''}\n" \
                                 f"{GREEN}{'─' * 50}{RESET}\n"
             findings += f"{GREEN}Total Confirmed XSS Vulnerabilities: {len(self.vulnerabilities)}{RESET}\n"
             print(findings)
