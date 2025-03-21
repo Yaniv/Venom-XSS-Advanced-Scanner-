@@ -52,6 +52,53 @@ def sanitize_input(input_str: str) -> str:
 def sanitize_path(path: str) -> str:
     return os.path.abspath(os.path.normpath(path))
 
+def parse_post_file(file_path: str) -> tuple[Optional[str], Dict[str, str], Dict[str, str]]:
+    """Parse a TXT file containing a POST request into URL, headers, and data."""
+    url = None
+    headers = {}
+    data = {}
+    try:
+        with open(file_path, 'r', encoding='utf-8') as f:
+            content = f.read().strip()
+            lines = content.splitlines()
+            
+            # Extract method and URL from first line (e.g., "POST /path HTTP/1.1")
+            if lines and lines[0].startswith("POST "):
+                url_parts = lines[0].split()
+                if len(url_parts) >= 2:
+                    url = url_parts[1]  # Will be combined with host later
+            
+            # Parse headers and body
+            in_headers = True
+            body_start = 0
+            for i, line in enumerate(lines[1:], 1):
+                if not line.strip():
+                    in_headers = False
+                    body_start = i + 1
+                    break
+                if in_headers and ':' in line:
+                    key, value = line.split(':', 1)
+                    headers[sanitize_input(key.strip())] = sanitize_input(value.strip())
+            
+            # Extract URL from Host header if not already set
+            if not url and 'Host' in headers:
+                url = f"http://{headers['Host']}{url or '/'}"
+            
+            # Parse body (assuming application/x-www-form-urlencoded)
+            if body_start > 0 and body_start < len(lines):
+                body = '&'.join(lines[body_start:]).strip()
+                for pair in body.split('&'):
+                    if '=' in pair:
+                        key, value = pair.split('=', 1)
+                        data[sanitize_input(key)] = sanitize_input(value)
+            
+            logging.info(f"Parsed POST file: URL={url}, Headers={headers}, Data={data}")
+            return url, headers, data
+    except Exception as e:
+        logging.error(f"Failed to parse POST file {file_path}: {e}")
+        return None, {}, {}
+    return url, headers, data
+
 def get_banner_and_features() -> str:
     banner = f"""
 {GREEN}╔════════════════════════════════════════════════════════════════════╗{RESET}
@@ -63,25 +110,25 @@ def get_banner_and_features() -> str:
 {GREEN}║           ╚═════╝ ╚══════╝╚═╝  ╚═══╝ ╚═════╝ ╚═╝     ╚═╝           ║{RESET}
 {GREEN}║                                                                    ║{RESET}
 {GREEN}║                  Venom Advanced XSS Scanner 2025                   ║{RESET}
-{GREEN}║                            Version 5.18                            ║{RESET}
+{GREEN}║                            Version 5.19                            ║{RESET}
 {GREEN}║    Made by: YANIV AVISROR | PENETRATION TESTER | ETHICAL HACKER    ║{RESET}
 {GREEN}╚════════════════════════════════════════════════════════════════════╝{RESET}
 """
     features = [
         "Accurate XSS detection with context-aware analysis",
         "Session-aware POST/GET scanning with login support",
+        "Support for custom POST requests from TXT files",
         "Dynamic response analysis for improved detection",
         "WAF/CSP detection with adaptive strategies",
         "Payloads sourced from local files and GitHub",
-        "AI-driven payload optimization with model selection",
-        "Stealth mode with dynamic adjustments"
+        "AI-driven payload optimization with model selection"
     ]
     return banner + "\nCore Features:\n" + "\n".join(f"{GREEN}➤ {feature}{RESET}" for feature in features) + "\n"
 
 def parse_args() -> argparse.Namespace:
     banner_and_features = get_banner_and_features()
     description = f"""{banner_and_features}
-Venom Advanced XSS Scanner is a professional-grade tool for ethical penetration testers to identify XSS vulnerabilities with high accuracy. This version supports HTTP/HTTPS, POST/GET requests, login page scanning, and AI model selection.
+Venom Advanced XSS Scanner is a professional-grade tool for ethical penetration testers to identify XSS vulnerabilities with high accuracy. This version supports HTTP/HTTPS, POST/GET requests, custom POST from TXT files, login page scanning, and AI model selection.
 
 Usage:
   python3 venom.py <url> [options]
@@ -106,6 +153,7 @@ Options:
   -H                    Custom HTTP headers (e.g., -H 'Cookie: sessionid=xyz')
   --method              HTTP method to use (default: both, options: get, post, both)
   --data                Data for POST request in 'key=value&key2=value2' format
+  --post-file           Path to TXT file containing a POST request (overrides --data)
   --payload-field       Field to inject payload into (e.g., 'password')
   --login-url           URL for login to establish session (optional)
   --login-data          Login credentials in 'key=value&key2=value2' format (optional)
@@ -113,7 +161,7 @@ Options:
 """
     
     parser = argparse.ArgumentParser(description=description, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("url", help="Target URL to scan")
+    parser.add_argument("url", help="Target URL to scan", nargs='?')  # Optional if using --post-file
     parser.add_argument("-w", "--workers", type=int, default=5, help="Number of concurrent threads")
     parser.add_argument("--ai-assist", action="store_true", help="Enable AI-driven payload optimization")
     parser.add_argument("--ai-key", type=str, default=None, help="API key for AI assistance")
@@ -129,6 +177,7 @@ Options:
     parser.add_argument("-H", action='append', help="Custom HTTP headers", default=[])
     parser.add_argument("--method", choices=['get', 'post', 'both'], default='both', help="HTTP method to use")
     parser.add_argument("--data", type=str, default=None, help="Data for POST request")
+    parser.add_argument("--post-file", type=str, default=None, help="Path to TXT file containing a POST request")
     parser.add_argument("--payload-field", type=str, default=None, help="Field to inject payload into")
     parser.add_argument("--login-url", type=str, default=None, help="URL for login to establish session")
     parser.add_argument("--login-data", type=str, default=None, help="Login credentials for POST")
@@ -156,10 +205,30 @@ Options:
     else:
         args.min_delay = args.min_delay if args.min_delay is not None else 0.1
         args.max_delay = args.max_delay if args.max_delay is not None else 0.5
+    
+    if args.post_file:
+        post_url, post_headers, post_data = parse_post_file(sanitize_path(args.post_file))
+        if post_url and not args.url:
+            args.url = post_url
+        elif post_url and args.url and post_url != args.url:
+            print(f"{YELLOW}[!] URL from --post-file ({post_url}) differs from command-line URL ({args.url}). Using command-line URL.{RESET}")
+        if not args.url:
+            print(f"{RED}[!] No URL provided and none found in --post-file. Exiting.{RESET}")
+            sys.exit(1)
+        args.post_headers = post_headers
+        args.post_data = post_data if not args.data else args.data
+        if post_headers:
+            args.H.extend([f"{k}: {v}" for k, v in post_headers.items()])
+        print(f"{GREEN}[+] Loaded POST request from file: {args.post_file}{RESET}")
+    
+    if not args.url:
+        print(f"{RED}[!] URL is required unless provided via --post-file. Exiting.{RESET}")
+        sys.exit(1)
+    
     if args.ai_assist and not args.ai_key:
         print(f"{YELLOW}[!] Warning: --ai-assist enabled without --ai-key. Using default payload enhancement.{RESET}")
-    if args.method == 'post' and not args.data and not args.auto_login:
-        print(f"{YELLOW}[!] Warning: POST method selected without --data or --auto-login. No data will be sent unless forms are detected.{RESET}")
+    if args.method == 'post' and not args.data and not args.post_file and not args.auto_login:
+        print(f"{YELLOW}[!] Warning: POST method selected without --data, --post-file, or --auto-login. No data will be sent unless forms are detected.{RESET}")
     if args.login_url and not args.login_data:
         print(f"{RED}[!] Error: --login-url provided without --login-data. Exiting.{RESET}")
         sys.exit(1)
@@ -169,7 +238,7 @@ Options:
 
 def fetch_payloads_from_github(urls: List[str], timeout: int) -> List[str]:
     payloads = []
-    headers = {'User-Agent': 'Venom-XSS-Scanner/5.18'}
+    headers = {'User-Agent': 'Venom-XSS-Scanner/5.19'}
     session = requests.Session()
     session.mount('https://', HTTPAdapter(max_retries=Retry(total=5, backoff_factor=2)))
     for url in urls:
@@ -382,7 +451,9 @@ class Venom:
                     logging.warning(f"Invalid header format: {header}")
 
         self.post_data = {}
-        if args.data:
+        if args.post_file and hasattr(args, 'post_data'):
+            self.post_data = args.post_data
+        elif args.data:
             for pair in args.data.split('&'):
                 key, value = pair.split('=', 1)
                 self.post_data[key] = value
@@ -478,10 +549,13 @@ class Venom:
             name = tag.get('name') or tag.get('id')
             if name and name not in param_keys:
                 param_keys.append(name)
+        if self.post_data:
+            param_keys.extend(self.post_data.keys())
         
         active_params = []
         try:
-            base_response = self.session.request(method, url, timeout=self.args.timeout, verify=True).text
+            base_response = self.session.request(method, url, data=self.post_data if method == 'post' else None, 
+                                               timeout=self.args.timeout, verify=True).text
             base_length = len(base_response)
             base_hash = hash(base_response)
             
@@ -491,7 +565,7 @@ class Venom:
                 response = self.session.request(
                     method, test_url,
                     params=test_params if method == 'get' else None,
-                    data=test_params if method == 'post' else None,
+                    data=test_params if method == 'post' else self.post_data,
                     timeout=self.args.timeout,
                     verify=True
                 ).text
@@ -597,8 +671,9 @@ class Venom:
             
             if self.args.method in ['get', 'both']:
                 self.test_injection_points(url, response, soup, payloads, 'get')
-            if self.args.method in ['post', 'both'] and soup.find_all('form'):
-                self.test_injection_points(url, response, soup, payloads, 'post')
+            if self.args.method in ['post', 'both']:
+                if soup.find_all('form') or self.post_data:
+                    self.test_injection_points(url, response, soup, payloads, 'post')
             
             for form in soup.find_all('form'):
                 action = urljoin(url, form.get('action', ''))
@@ -640,6 +715,8 @@ class Venom:
         inputs = {inp.get('name'): inp.get('value', '') for inp in form.find_all(['input', 'textarea', 'select']) if inp.get('name')}
         if not inputs:
             inputs = {tag.get('id') or f"unnamed_{i}": '' for i, tag in enumerate(form.find_all(['input', 'textarea', 'select']))}
+        if self.post_data:
+            inputs.update(self.post_data)
         logging.info(f"Testing form inputs: {list(inputs.keys())} on {action}")
         try:
             base_response = self.session.post(action, data=inputs, timeout=self.args.timeout, verify=True).text
