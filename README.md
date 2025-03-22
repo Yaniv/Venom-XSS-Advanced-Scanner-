@@ -5,96 +5,103 @@ About the Tool: Venom Advanced XSS Scanner 2025
 
 Overview
 What is Venom Advanced XSS Scanner?
-Venom is a command-line tool created by Yaniv Avisror, labeled as Version 5.20, with a futuristic branding of "2025." It’s designed to automate the process of finding XSS vulnerabilities—security flaws where malicious scripts can be injected into web pages viewed by other users. XSS is a critical web security issue, often exploited to steal data, hijack sessions, or deface websites.
-
-The tool stands out by offering advanced features like session management, support for both GET and POST requests, AI-driven payload optimization, and colorful, user-friendly output. It’s intended for ethical use only, as emphasized by the mandatory "YES/NO" prompt at startup.
-Key Features
-Here’s a rundown of Venom’s main features, extracted from the script and its banner:
-
-Accurate XSS Detection with Context-Aware Analysis:
-Venom doesn’t just throw payloads at a site; it analyzes responses to determine if a payload is reflected (appears in the output) and executable (can run in a script context). It uses similarity checks (via TF-IDF and cosine similarity) to avoid false positives.
-Smart Session-Aware POST/GET Scanning:
-It supports both GET (query string) and POST (form data) requests, making it versatile for different web inputs.
-It can maintain or establish user sessions using login credentials, cookies, or auto-login attempts, ensuring it can scan authenticated areas of a site.
-Custom POST Requests from TXT Files:
-You can specify a POST request in a text file (e.g., with headers and data), allowing precise testing of specific endpoints.
-Dynamic Response Analysis:
-Compares responses to a baseline to detect changes caused by payloads, enhancing detection accuracy.
-Checks for executable contexts (e.g., <script>, onerror) and escaping (e.g., breaking out of quotes).
-WAF/CSP Detection with Adaptive Strategies:
-Detects Web Application Firewalls (WAFs) and Content Security Policies (CSP) by inspecting headers.
-Adapts by switching to bypass payloads (e.g., 403bypass.txt) or enabling stealth mode when protections are detected.
-Payloads from Local Files and GitHub:
-Loads XSS payloads from local files (e.g., advanced_xss.txt) and fetches additional ones from GitHub repositories like PayloadBox and PayloadsAllTheThings.
-AI-Driven Payload Optimization:
-Optionally uses an AI model (default: xai-grok) to suggest optimized payloads based on response content, improving effectiveness against specific targets.
-Colorful and Detailed Output:
-Uses ANSI color codes for a visually appealing interface, making it easy to track progress, view vulnerabilities, and read reports.
-
-● Accurate XSS detection with context-aware analysis
-● Smart session-aware POST/GET scanning with login support
-● Support for custom POST requests from TXT files
-● Dynamic response analysis with similarity checking
-● WAF/CSP detection with adaptive strategies
-● Payloads sourced from local files and GitHub
-● AI-driven payload optimization with model selection
+The Venom Advanced XSS Scanner is a sophisticated, Python-based tool designed for ethical penetration testers and security researchers to identify Cross-Site Scripting (XSS) vulnerabilities in web applications. Developed with a focus on precision, flexibility, and automation, Venom stands out as a powerful ally in the fight against web security threats. As of March 22, 2025, its latest iteration (Version 5.33) incorporates advanced features that make it a valuable asset for both novice and experienced security professionals.
 
 Venom Advanced XSS Scanner is a professional-grade tool for ethical penetration testers to identify XSS vulnerabilities with high accuracy. This version supports HTTP/HTTPS, smart POST/GET requests, custom POST from TXT files, session management, and AI model selection.
 
-Technical Components
-Libraries:
-requests: For HTTP requests and session management.
-BeautifulSoup: Parses HTML to find forms and injection points.
-sklearn: For TF-IDF vectorization and similarity analysis.
-threading/concurrent.futures: Multi-threaded scanning for speed.
-Classes:
-ThreadSafeCounter: Thread-safe counter for tracking tests.
-PayloadGenerator: Manages XSS payload loading and optimization.
-AIAssistant: Handles AI-driven payload suggestions.
-Venom: Core class orchestrating the scan.
-Key Methods:
-smart_session_management: Ensures valid sessions.
-test_injection_points/test_form: Inject payloads into GET/POST inputs.
-report_vulnerability: Formats and logs detected XSS issues.
+Precise XSS Detection with Context-Aware Analysis:
+Venom excels at identifying XSS vulnerabilities by analyzing the context in which payloads are reflected (e.g., HTML attributes, JavaScript, or DOM). This reduces false positives and ensures that reported vulnerabilities are actionable.
+Flexible Session and Cookie Handling:
+The tool supports scanning with existing sessions, new sessions, or custom cookies via the -H/--headers flag. This allows testers to simulate real-world user interactions, making it ideal for authenticated testing scenarios.
+Comprehensive Payload Sourcing:
+Venom pulls payloads from local files (e.g., advanced_xss.txt, xss_payloads.txt), GitHub repositories, and custom directories. With over 8,000 unique payloads loaded in a single run (as seen in logs), it offers extensive coverage of XSS attack vectors.
+Advanced WAF/IPS Detection and 403 Bypass:
+It detects Web Application Firewalls (WAFs) and Intrusion Prevention Systems (IPS) and includes a configurable 403 bypass feature. This ensures testers can adapt to defensive mechanisms and continue scanning effectively.
+AI-Powered Optimization:
+With optional AI assistance (local learning or external API), Venom optimizes payloads based on response analysis, increasing the likelihood of detecting vulnerabilities in complex applications.
+Headless Browser Verification:
+For high-severity findings, Venom uses a headless Chrome browser to verify payload execution (e.g., triggering alert() or confirm()), distinguishing between reflected and executable XSS.
+Real-Time Feedback and Detailed Reporting:
+The tool provides live progress updates (e.g., tests completed, vulnerabilities found) and generates comprehensive reports with full URLs, payloads, and severity levels, making remediation straightforward.
+Cross-Platform and Open-Source:
+Written in Python, Venom runs on Linux, Windows, and macOS, and its open-source nature allows customization and community contributions.
+
+
+ 
+● Precise XSS detection with context-aware payload analysis
+● Session-aware POST/GET scanning with login and cookie support
+● Custom POST request parsing from TXT files (SQLmap-compatible)
+● Dynamic response comparison using similarity metrics
+● Advanced WAF/IPS detection with configurable 403 bypass
+● Payload sourcing from local files, GitHub, and custom directories
+● AI-powered payload optimization (local or external API)
+● Headless browser verification for executable XSS payloads
+● Real-time scan progress with detailed feedback display
+● Cookie and session injection with flexible new/existing session handling
+● Comprehensive vulnerability reporting with full payload details
+
+Venom Advanced XSS Scanner is a professional-grade tool for ethical penetration testers to identify XSS vulnerabilities with high accuracy. This version supports HTTP/HTTPS, smart POST/GET requests, custom POST from TXT files, multiple custom headers, 403 bypass, and two AI-assisted payload optimization modes:
+- Local AI: Learns from past scans to optimize payloads (no API key needed).
+- External AI: Uses an external AI platform (requires --ai-key and --ai-platform).
+
 Usage:
   python3 venom.py <url> [options]
+Examples:
+  python3 venom.py http://example.com --scan-xss --ai-assist --force-headless  # Local AI with headless browser
+  python3 venom.py https://example.com --scan-xss --use-403-bypass -H "Cookie: session=abc123" -H "User-Agent: VenomScanner" -w 10 --verbose  # 403 bypass with custom headers
+  python3 venom.py http://example.com --scan-xss --ai-assist --ai-key "your-key" --ai-platform "xai-grok" --new-session  # External AI with new session
 
 positional arguments:
-  url                   Target URL to scan
+  url                   Target URL to scan (e.g., http://example.com).
 
 options:
   -h, --help            show this help message and exit
   -w, --workers WORKERS
-                        Number of concurrent threads
-  --ai-assist           Enable AI-driven payload optimization
-  --ai-key AI_KEY       API key for AI assistance
-  --ai-model AI_MODEL   AI model to use
-  --scan-xss            Enable XSS scanning (required)
+                        Number of concurrent threads (default: 5, max: 20).
+  --ai-assist           Enable AI-driven payload optimization. Uses local learning by default; requires --ai-key and --ai-platform for external AI.
+  --ai-key AI_KEY       API key for external AI platform (e.g., 'your-xai-key'). Required with --ai-platform.
+  --ai-platform {xai-grok,openai-gpt3,google-gemini}
+                        External AI platform (e.g., 'xai-grok'). Requires --ai-key; optional with --ai-assist.
+  --scan-xss            Enable XSS scanning (required).
   --payloads-dir PAYLOADS_DIR
-                        Directory with custom payload files
-  --timeout TIMEOUT     HTTP request timeout in seconds
-  --verbose             Enable detailed logging
-  --stealth             Force stealth mode
+                        Directory with custom payload files (default: './payloads/').
+  --timeout TIMEOUT     HTTP request timeout in seconds (default: 10).
+  --verbose             Enable detailed logging.
+  --stealth             Enable stealth mode: 2 workers, 5-15s delays.
   --min-delay MIN_DELAY
-                        Min delay between tests in seconds
+                        Min delay between tests (default: 0.1 normal, 5 stealth).
   --max-delay MAX_DELAY
-                        Max delay between tests in seconds
-  --full-report         Show all vulnerabilities in report
-  -H H                  Custom HTTP headers (e.g., 'Cookie: session=abc')
+                        Max delay between tests (default: 0.5 normal, 15 stealth).
+  --full-report         Show all vulnerabilities in report.
+  -H, --headers HEADERS
+                        Custom HTTP headers (e.g., 'Cookie: session=abc123'). Can be specified multiple times.
   --method {get,post,both}
-                        HTTP method to use
-  --data DATA           Data for POST request (e.g., 'key1=value1&key2=value2')
+                        HTTP method: 'get', 'post', 'both' (default).
+  --data DATA           POST data (e.g., 'key1=value1&key2=value2').
   --post-file POST_FILE
-                        Path to TXT file containing a POST request
+                        TXT file with POST request (e.g., 'post.txt').
   --payload-field PAYLOAD_FIELD
-                        Field to inject payload into
+                        Specific field to inject payloads (e.g., 'email').
   --login-url LOGIN_URL
-                        URL for login to establish session
+                        Login URL for session.
   --login-data LOGIN_DATA
-                        Login credentials for POST (e.g., 'username=admin&password=admin')
-  --auto-login          Automatically detect and attempt login
-                                                                
+                        Login credentials (e.g., 'username=admin&password=pass123').
+  --verify-execution    Verify high-severity payloads with headless browser.
+  --force-headless      Force headless browser usage even if verification fails.
+  --new-session         Force a new session by clearing cookies before scanning.
+  --use-403-bypass      Enable 403 bypass using specialized payloads from payloads/403bypass.txt  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  ![venom3](https://github.com/user-attachments/assets/6eb037b4-362c-4faf-a103-98284706e4b3)
+                                           
 
-![venom2](https://github.com/user-attachments/assets/df8600d3-893d-4bfa-9737-093b6b969bb2)
 
 
