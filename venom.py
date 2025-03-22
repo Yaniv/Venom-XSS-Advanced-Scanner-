@@ -104,7 +104,7 @@ def get_banner_and_features() -> str:
 {BLUE}║{RESET}           {CYAN}╚═════╝ ╚══════╝╚═╝  ╚═══╝ ╚═════╝ ╚═╝     ╚═╝{RESET}           {BLUE}║{RESET}
 {BLUE}║{RESET}                                                                    {BLUE}║{RESET}
 {BLUE}║{RESET}                  {PURPLE}Venom Advanced XSS Scanner 2025{RESET}                   {BLUE}║{RESET}
-{BLUE}║{RESET}                            {WHITE}Version 5.24{RESET}                            {BLUE}║{RESET}
+{BLUE}║{RESET}                            {WHITE}Version 5.25{RESET}                            {BLUE}║{RESET}
 {BLUE}║{RESET}    {GREEN}Made by: YANIV AVISROR | PENETRATION TESTER | ETHICAL HACKER{RESET}    {BLUE}║{RESET}
 {BLUE}╚════════════════════════════════════════════════════════════════════╝{RESET}
 """
@@ -117,14 +117,15 @@ def get_banner_and_features() -> str:
         "Payloads sourced from local files and GitHub",
         "AI-driven payload optimization (local learning or external API)",
         "Execution verification using headless browser for precision",
-        "Real-time progress display with detailed testing feedback"
+        "Real-time progress display with detailed testing feedback",
+        "Cookie and session injection testing with new session support"
     ]
     return banner + "\n".join(f"{GREEN}{BOLD}●{RESET} {BOLD}{feature}{RESET}" for feature in features) + "\n"
 
 def parse_args() -> argparse.Namespace:
     banner_and_features = get_banner_and_features()
     description = f"""{banner_and_features}
-Venom Advanced XSS Scanner is a professional-grade tool for ethical penetration testers to identify XSS vulnerabilities with high accuracy. This version supports HTTP/HTTPS, smart POST/GET requests, custom POST from TXT files, and two AI-assisted payload optimization modes:
+Venom Advanced XSS Scanner is a professional-grade tool for ethical penetration testers to identify XSS vulnerabilities with high accuracy. This version supports HTTP/HTTPS, smart POST/GET requests, custom POST from TXT files, Cookie/Session testing, and two AI-assisted payload optimization modes:
 - Local AI: Learns from past scans to optimize payloads (no API key needed).
 - External AI: Uses an external AI platform (requires --ai-key and --ai-platform).
 
@@ -132,7 +133,8 @@ Usage:
   python3 venom.py <url> [options]
 Examples:
   python3 venom.py http://example.com --scan-xss --ai-assist  # Local AI optimization
-  python3 venom.py http://example.com --scan-xss --ai-assist --ai-key "your-key" --ai-platform "xai-grok"  # External AI
+  python3 venom.py http://example.com --scan-xss --ai-assist --ai-key "your-key" --ai-platform "xai-grok" --new-session  # External AI with new session
+  python3 venom.py http://example.com --scan-xss -H "Cookie: session=abc123"  # Test with custom cookie
 """
     
     parser = argparse.ArgumentParser(description=description, formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -158,6 +160,7 @@ Examples:
     parser.add_argument("--login-url", type=str, default=None, help="Login URL for session.")
     parser.add_argument("--login-data", type=str, default=None, help="Login credentials (e.g., 'username=admin&password=pass123').")
     parser.add_argument("--verify-execution", action="store_true", help="Verify high-severity payloads with headless browser.")
+    parser.add_argument("--new-session", action="store_true", help="Force a new session by clearing cookies before scanning.")
 
     print(banner_and_features)
     while True:
@@ -210,7 +213,7 @@ Examples:
 
 def fetch_payloads_from_github(timeout: int) -> List[str]:
     payloads = []
-    headers = {'User-Agent': 'Venom-XSS-Scanner/5.24'}
+    headers = {'User-Agent': 'Venom-XSS-Scanner/5.25'}
     session = requests.Session()
     session.mount('https://', HTTPAdapter(max_retries=Retry(total=5, backoff_factor=2)))
     github_urls = [
@@ -416,7 +419,10 @@ class Venom:
         if args.data:
             self.post_data.update(dict(pair.split('=', 1) for pair in args.data.split('&')))
 
-        if args.login_url and args.login_data:
+        if args.new_session:
+            self.session.cookies.clear()
+            logging.info("New session created by clearing cookies")
+        elif args.login_url and args.login_data:
             self.establish_session(args.login_url, args.login_data)
 
         self.task_queue = queue.Queue()
@@ -427,6 +433,7 @@ class Venom:
         self.total_payloads = 0
         self.current_payload = "Initializing..."
         self.current_param = "None"
+        self.current_cookie = "None"
         self.start_time = time.time()
         self.running = True
         self.domain = urlparse(args.url).netloc
@@ -450,7 +457,8 @@ class Venom:
             try:
                 key, value = header.split(':', 1)
                 self.session.headers.update({sanitize_input(key.strip()): sanitize_input(value.strip())})
-                logging.info(f"Added header: {key}: {value}")
+                if key.strip().lower() == 'cookie':
+                    logging.info(f"Custom Cookie added: {value.strip()}")
             except ValueError:
                 logging.warning(f"Invalid header: {header}")
 
@@ -459,7 +467,7 @@ class Venom:
         try:
             response = self.session.post(login_url, data=login_dict, timeout=self.args.timeout, verify=True)
             if response.status_code in [200, 302]:
-                logging.info(f"Login successful to {login_url}")
+                logging.info(f"Login successful to {login_url}. Cookies: {dict(self.session.cookies)}")
                 return True
             logging.warning(f"Login failed: Status {response.status_code}")
             return False
@@ -513,6 +521,15 @@ class Venom:
         if method == 'post' and self.post_data:
             param_keys.extend(self.post_data.keys())
         return param_keys
+
+    def extract_cookies(self) -> Dict[str, str]:
+        cookies = dict(self.session.cookies)
+        if 'Cookie' in self.session.headers:
+            for cookie in self.session.headers['Cookie'].split(';'):
+                if '=' in cookie:
+                    key, value = cookie.split('=', 1)
+                    cookies[sanitize_input(key.strip())] = sanitize_input(value.strip())
+        return cookies
 
     def verify_execution(self, url: str) -> bool:
         if not self.args.verify_execution:
@@ -577,6 +594,7 @@ class Venom:
                 self.test_injection_points(url, response, soup, payloads, 'get')
             if self.args.method in ['post', 'both']:
                 self.test_injection_points(url, response, soup, payloads, 'post')
+            self.test_cookies(url, payloads, response.text)
             
             for form in soup.find_all('form'):
                 action = urljoin(url, form.get('action', ''))
@@ -614,13 +632,28 @@ class Venom:
                 test_params[name] = payload
                 self.test_request(action, test_params, payload, 'post', f"Form Field ({name})", base_response)
 
+    def test_cookies(self, url: str, payloads: List[str], base_response: str) -> None:
+        cookies = self.extract_cookies()
+        if not cookies:
+            return
+        logging.info(f"Testing cookies: {list(cookies.keys())} on {url}")
+        original_headers = self.session.headers.copy()
+        for cookie_name, cookie_value in cookies.items():
+            for payload in payloads:
+                self.current_param = f"Cookie: {cookie_name}"
+                self.current_cookie = f"{cookie_name}={payload}"
+                cookie_str = '; '.join([f"{k}={v if k != cookie_name else payload}" for k, v in cookies.items()])
+                self.session.headers['Cookie'] = cookie_str
+                self.test_request(url, {}, payload, 'get', f"Cookie ({cookie_name})", base_response)
+        self.session.headers = original_headers  # Restore original headers
+
     def test_request(self, url: str, params: dict, payload: str, method: str, injection_point: str, 
                     base_response: str) -> Optional[requests.Response]:
         retry_attempts = 3
         for attempt in range(retry_attempts):
             try:
                 self.total_tests.increment()
-                self.current_payload = payload[:50] + "..." if len(payload) > 50 else payload  # Truncate for display
+                self.current_payload = payload[:50] + "..." if len(payload) > 50 else payload
                 self._display_status()
                 data = self.post_data.copy() if method == 'post' else None
                 if method == 'post':
@@ -634,7 +667,7 @@ class Venom:
                 )
                 response_text = html.unescape(resp.text.lower())
                 
-                reflected = payload.lower() in response_text  # Simplified reflection check
+                reflected = payload.lower() in response_text
                 sanitized = html.escape(payload.lower()) in response_text
                 
                 if not reflected or sanitized:
@@ -649,7 +682,7 @@ class Venom:
                         break
                 
                 similarity = self.check_similarity(base_response, resp.text)
-                if similarity > 0.95:  # Tightened threshold
+                if similarity > 0.95:
                     continue
                 
                 full_url = url + ('?' + urlencode(params) if method == 'get' else '')
@@ -681,12 +714,13 @@ class Venom:
                  f"{BLUE}║{RESET} {CYAN}Progress:{RESET} {WHITE}{progress:.1f}%{RESET} {CYAN}Tests:{RESET} {WHITE}{self.total_tests.get()}/{self.total_payloads}{RESET}\n" \
                  f"{BLUE}║{RESET} {CYAN}Vulns:{RESET} {RED}{len(self.vulnerabilities)}{RESET} {CYAN}Time:{RESET} {WHITE}{elapsed}s{RESET}\n" \
                  f"{BLUE}║{RESET} {CYAN}Current Param:{RESET} {YELLOW}{self.current_param}{RESET}\n" \
+                 f"{BLUE}║{RESET} {CYAN}Current Cookie:{RESET} {ORANGE}{self.current_cookie}{RESET}\n" \
                  f"{BLUE}║{RESET} {CYAN}Current Payload:{RESET} {ORANGE}{self.current_payload}{RESET}\n" \
                  f"{BLUE}╚════════════════════════╝{RESET}"
         if final:
             print(status)
         else:
-            sys.stdout.write(f"\033[5A\033[2K{status}\033[0m")
+            sys.stdout.write(f"\033[6A\033[2K{status}\033[0m")
             sys.stdout.flush()
 
     def report_vulnerability(self, url: str, payload: str, params: dict, vuln_type: str, popup: bool) -> None:
@@ -702,6 +736,7 @@ class Venom:
                 'waf_status': self.waf_csp_status,
                 'bypass': "Yes" if self.bypass_performed or self.use_403_bypass else "No",
                 'params': params,
+                'cookies': dict(self.session.cookies),
                 'method': self.args.method if self.args.method != 'both' else 'post' if 'Form' in vuln_type else 'get'
             }
             if vuln in self.vulnerabilities:
@@ -717,8 +752,9 @@ class Venom:
                      f"{RED}║{RESET} {WHITE}Payload:{RESET} {ORANGE}{payload}{RESET}\n" \
                      f"{RED}║{RESET} {WHITE}Context:{RESET} {PURPLE}{vuln['context']}{RESET}\n" \
                      f"{RED}║{RESET} {WHITE}Executed:{RESET} {GREEN}{'Yes' if popup else 'No'}{RESET}\n" \
+                     f"{RED}║{RESET} {WHITE}Cookies:{RESET} {YELLOW}{vuln['cookies']}{RESET}\n" \
                      f"{RED}║{RESET} {WHITE}WAF/CSP:{RESET} {YELLOW}{self.waf_csp_status}{RESET} | {WHITE}Bypass:{RESET} {YELLOW}{vuln['bypass']}{RESET}\n" \
-                     f"{RED}║{RESET} {WHITE}Verify:{RESET} {BLUE}curl -X {vuln['method'].upper()} \"{url}\" {'-d \"' + urlencode(params) + '\"' if vuln['method'] == 'post' else ''}{RESET}\n"
+                     f"{RED}║{RESET} {WHITE}Verify:{RESET} {BLUE}curl -X {vuln['method'].upper()} \"{url}\" {'-d \"' + urlencode(params) + '\"' if vuln['method'] == 'post' else ''} {'-H \"Cookie: ' + '; '.join([f'{k}={v}' for k, v in vuln['cookies'].items()]) + '\"' if vuln['cookies'] else ''}{RESET}\n"
             if popup and "High" in severity:
                 output += f"{RED}║{RESET} {WHITE}Exploit:{RESET} {GREEN}<html><body><script>window.location='{url}';</script></body></html>{RESET}\n"
             output += f"{RED}╚════════════════════════════════════════════════════╝{RESET}"
@@ -731,7 +767,7 @@ class Venom:
         summary = f"{BLUE}╔════════════════════════════════════════════════════╗{RESET}\n" \
                   f"{BLUE}║{RESET}         {CYAN}Venom XSS Scan Summary{RESET}                 {BLUE}║{RESET}\n" \
                   f"{BLUE}╚════════════════════════════════════════════════════╝{RESET}\n" \
-                  f"{WHITE}Scan Started:{RESET} {GREEN}{time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(self.start_time))}{RESET}\n" \
+                  f"{WHITE}Scan Started:{RESET} {GREEN}{time.strftime('%Y-%m-d %H:%M:%S', time.localtime(self.start_time))}{RESET}\n" \
                   f"{WHITE}Scan Ended:{RESET} {GREEN}{time.strftime('%Y-%m-%d %H:%M:%S')}{RESET}\n" \
                   f"{WHITE}Total Runtime:{RESET} {YELLOW}{runtime} seconds{RESET}\n" \
                   f"{WHITE}URLs Scanned:{RESET} {CYAN}{len(self.visited_urls)}{RESET}\n" \
