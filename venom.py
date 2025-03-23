@@ -16,7 +16,7 @@ from requests.packages.urllib3.util.retry import Retry
 import logging
 from typing import Optional, List, Dict
 import html
-from requests.exceptions import RequestException, SSLError, Timeout
+from requests.exceptions import RequestException
 from concurrent.futures import ThreadPoolExecutor
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
@@ -99,72 +99,76 @@ def get_banner_and_features() -> str:
 {BLUE}╔════════════════════════════════════════════════════════════════════╗{RESET}
 {BLUE}║{RESET}          {CYAN}██╗   ██╗███████╗███╗   ██╗ ██████╗ ███╗   ███╗{RESET}           {BLUE}║{RESET}
 {BLUE}║{RESET}          {CYAN}██║   ██║██╔════╝████╗  ██║██╔═══██╗████╗ ████║{RESET}           {BLUE}║{RESET}
-{BLUE}║{RESET}          {CYAN}██║   ██║█████╗  ██╔██╗ ██║██║   ██╗██╔████╔██║{RESET}           {BLUE}║{RESET}
-{BLUE}║{RESET}          {CYAN}██║   ██║██╔══╝  ██║╚██╗██║██║   ██╗██║╚██╔╝██║{RESET}           {BLUE}║{RESET}
+{BLUE}║{RESET}          {CYAN}██║   ██║█████╗  ██╔██╗ ██║██║   ██║██╔████╔██║{RESET}           {BLUE}║{RESET}
+{BLUE}║{RESET}          {CYAN}██║   ██║██╔══╝  ██║╚██╗██║██║   ██║██║╚██╔╝██║{RESET}           {BLUE}║{RESET}
 {BLUE}║{RESET}          {CYAN}╚██████╔╝███████╗██║ ╚████║╚██████╔╝██║ ╚═╝ ██║{RESET}           {BLUE}║{RESET}
 {BLUE}║{RESET}           {CYAN}╚═════╝ ╚══════╝╚═╝  ╚═══╝ ╚═════╝ ╚═╝     ╚═╝{RESET}           {BLUE}║{RESET}
 {BLUE}║{RESET}                                                                    {BLUE}║{RESET}
 {BLUE}║{RESET}                  {PURPLE}Venom Advanced XSS Scanner 2025{RESET}                   {BLUE}║{RESET}
-{BLUE}║{RESET}                            {WHITE}Version 5.33{RESET}                            {BLUE}║{RESET}
+{BLUE}║{RESET}                            {WHITE}Version 5.37{RESET}                            {BLUE}║{RESET}
 {BLUE}║{RESET}    {GREEN}Made by: YANIV AVISROR | PENETRATION TESTER | ETHICAL HACKER{RESET}    {BLUE}║{RESET}
 {BLUE}╚════════════════════════════════════════════════════════════════════╝{RESET}
 """
     features = [
-        "Precise XSS detection with context-aware payload analysis",
-        "Session-aware POST/GET scanning with login and cookie support",
-        "Custom POST request parsing from TXT files ",
-        "Dynamic response comparison using similarity metrics",
-        "Advanced WAF/IPS detection with configurable 403 bypass",
-        "Payload sourcing from local files, GitHub, and custom directories",
-        "AI-powered payload optimization (local or external API)",
-        "Headless browser verification for executable XSS payloads",
-        "Real-time scan progress with detailed feedback display",
-        "Cookie and session injection with flexible new/existing session handling",
-        "Comprehensive vulnerability reporting with full payload details"
+        "Optimized XSS detection with refined similarity and execution checks",
+        "Parallel GET/POST testing across all parameters",
+        "Custom POST parsing from files (SQLmap-compatible)",
+        "Dynamic response analysis with automatic execution verification",
+        "Advanced WAF/IPS detection with bypass options",
+        "Payloads from local, GitHub, or custom sources",
+        "AI-driven payload optimization (local or external)",
+        "Headless browser verification for executable XSS",
+        "Real-time progress with method and parameter tracking",
+        "Flexible session handling with cookie support",
+        "Detailed reporting with severity and context"
     ]
     return banner + "\n".join(f"{GREEN}{BOLD}●{RESET} {BOLD}{feature}{RESET}" for feature in features) + "\n"
 
 def parse_args() -> argparse.Namespace:
     banner_and_features = get_banner_and_features()
     description = f"""{banner_and_features}
-Venom Advanced XSS Scanner is a professional-grade tool for ethical penetration testers to identify XSS vulnerabilities with high accuracy. This version supports HTTP/HTTPS, smart POST/GET requests, custom POST from TXT files, multiple custom headers, 403 bypass, and two AI-assisted payload optimization modes:
-- Local AI: Learns from past scans to optimize payloads (no API key needed).
-- External AI: Uses an external AI platform (requires --ai-key and --ai-platform).
+Venom Advanced XSS Scanner is a professional tool for ethical penetration testers to detect XSS vulnerabilities with high accuracy. Version 5.37 enhances detection by lowering similarity thresholds, auto-verifying execution, and ensuring all parameters are tested.
 
 Usage:
   python3 venom.py <url> [options]
+
 Examples:
-  python3 venom.py http://example.com --scan-xss --ai-assist --force-headless  # Local AI with headless browser
-  python3 venom.py https://example.com --scan-xss --use-403-bypass -H "Cookie: session=abc123" -H "User-Agent: VenomScanner" -w 10 --verbose  # 403 bypass with custom headers
-  python3 venom.py http://example.com --scan-xss --ai-assist --ai-key "your-key" --ai-platform "xai-grok" --new-session  # External AI with new session
+  python3 venom.py http://example.com --scan-xss --verbose --full-report -w 5 --timeout 30
+    - Basic scan with verbose output and 5 workers.
+  python3 venom.py https://test.com --scan-xss --method both --data "user=test&pass=test" --payloads-dir "/path/to/payloads" --verbose --new-session --verify-execution
+    - Tests GET/POST with custom data, new session, and execution verification.
+  python3 venom.py http://site.com --scan-xss --post-file post.txt --login-url http://site.com/login --login-data "username=admin&password=pass123" -H "Cookie: session=abc123" --ai-assist
+    - Uses POST file, logs in, keeps session cookie, with AI assistance.
+  python3 venom.py https://vuln.com --scan-xss --stealth --use-403-bypass --payloads-dir "/usr/local/bin/payloads" --timeout 60 --full-report
+    - Stealth mode with 403 bypass, extended timeout.
 """
     
     parser = argparse.ArgumentParser(description=description, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("url", help="Target URL to scan (e.g., http://example.com).")
     parser.add_argument("-w", "--workers", type=int, default=5, help="Number of concurrent threads (default: 5, max: 20).")
-    parser.add_argument("--ai-assist", action="store_true", help="Enable AI-driven payload optimization. Uses local learning by default; requires --ai-key and --ai-platform for external AI.")
-    parser.add_argument("--ai-key", type=str, default=None, help="API key for external AI platform (e.g., 'your-xai-key'). Required with --ai-platform.")
-    parser.add_argument("--ai-platform", type=str, default=None, choices=['xai-grok', 'openai-gpt3', 'google-gemini'],
-                        help="External AI platform (e.g., 'xai-grok'). Requires --ai-key; optional with --ai-assist.")
+    parser.add_argument("--ai-assist", action="store_true", help="Enable AI-driven payload optimization (local by default).")
+    parser.add_argument("--ai-key", type=str, help="API key for external AI platform (e.g., xAI, OpenAI).")
+    parser.add_argument("--ai-platform", type=str, choices=['xai-grok', 'openai-gpt3', 'google-gemini'],
+                        help="External AI platform (requires --ai-key).")
     parser.add_argument("--scan-xss", action="store_true", help="Enable XSS scanning (required).", required=True)
-    parser.add_argument("--payloads-dir", default="./payloads/", help="Directory with custom payload files (default: './payloads/').")
-    parser.add_argument("--timeout", type=int, default=10, help="HTTP request timeout in seconds (default: 10).")
-    parser.add_argument("--verbose", action="store_true", help="Enable detailed logging.")
+    parser.add_argument("--payloads-dir", default="./payloads/", help="Directory with custom payload files.")
+    parser.add_argument("--timeout", type=int, default=30, help="HTTP request timeout in seconds (default: 30).")
+    parser.add_argument("--verbose", action="store_true", help="Enable detailed logging to venom.log and console.")
     parser.add_argument("--stealth", action="store_true", help="Enable stealth mode: 2 workers, 5-15s delays.")
-    parser.add_argument("--min-delay", type=float, help="Min delay between tests (default: 0.1 normal, 5 stealth).")
-    parser.add_argument("--max-delay", type=float, help="Max delay between tests (default: 0.5 normal, 15 stealth).")
-    parser.add_argument("--full-report", action="store_true", help="Show all vulnerabilities in report.")
-    parser.add_argument("-H", "--headers", action='append', default=[], help="Custom HTTP headers (e.g., 'Cookie: session=abc123'). Can be specified multiple times.")
-    parser.add_argument("--method", choices=['get', 'post', 'both'], default='both', help="HTTP method: 'get', 'post', 'both' (default).")
-    parser.add_argument("--data", type=str, default=None, help="POST data (e.g., 'key1=value1&key2=value2').")
-    parser.add_argument("--post-file", type=str, default=None, help="TXT file with POST request (e.g., 'post.txt').")
-    parser.add_argument("--payload-field", type=str, default=None, help="Specific field to inject payloads (e.g., 'email').")
-    parser.add_argument("--login-url", type=str, default=None, help="Login URL for session.")
-    parser.add_argument("--login-data", type=str, default=None, help="Login credentials (e.g., 'username=admin&password=pass123').")
-    parser.add_argument("--verify-execution", action="store_true", help="Verify high-severity payloads with headless browser.")
-    parser.add_argument("--force-headless", action="store_true", help="Force headless browser usage even if verification fails.")
-    parser.add_argument("--new-session", action="store_true", help="Force a new session by clearing cookies before scanning.")
-    parser.add_argument("--use-403-bypass", action="store_true", help="Enable 403 bypass using specialized payloads from payloads/403bypass.txt.")
+    parser.add_argument("--min-delay", type=float, help="Min delay between requests (default: 0.1 or 5 in stealth).")
+    parser.add_argument("--max-delay", type=float, help="Max delay between requests (default: 0.5 or 15 in stealth).")
+    parser.add_argument("--full-report", action="store_true", help="Show all vulnerabilities in final report.")
+    parser.add_argument("-H", "--headers", action='append', default=[], help="Custom headers (e.g., 'Cookie: session=abc123').")
+    parser.add_argument("--method", choices=['get', 'post', 'both'], default='both', help="HTTP method to test (default: both).")
+    parser.add_argument("--data", type=str, help="POST data (e.g., 'key1=value1&key2=value2').")
+    parser.add_argument("--post-file", type=str, help="TXT file with POST request (SQLmap format).")
+    parser.add_argument("--payload-field", type=str, help="Specific field to inject payloads (e.g., 'email').")
+    parser.add_argument("--login-url", type=str, help="Login URL for session authentication.")
+    parser.add_argument("--login-data", type=str, help="Login credentials (e.g., 'username=admin&password=pass123').")
+    parser.add_argument("--verify-execution", action="store_true", help="Verify executable XSS with headless browser (auto-enabled for on* payloads).")
+    parser.add_argument("--force-headless", action="store_true", help="Force headless browser for all payloads.")
+    parser.add_argument("--new-session", action="store_true", help="Start a new session, clearing cookies and prior data.")
+    parser.add_argument("--use-403-bypass", action="store_true", help="Enable 403 bypass with specialized payloads.")
 
     print(banner_and_features)
     while True:
@@ -216,7 +220,7 @@ Examples:
 
 def fetch_payloads_from_github(timeout: int) -> List[str]:
     payloads = []
-    headers = {'User-Agent': 'Venom-XSS-Scanner/5.33'}
+    headers = {'User-Agent': 'Venom-XSS-Scanner/5.37'}
     session = requests.Session()
     session.mount('https://', HTTPAdapter(max_retries=Retry(total=5, backoff_factor=2)))
     github_urls = [
@@ -251,7 +255,7 @@ class PayloadGenerator:
             "javascript:alert('XSS')",
             "<input onfocus=alert(1) autofocus>",
             "<div onmouseover=alert(1)>test</div>",
-            "autofocus/onfocus=\"confirm(document.domain)\""  # Specific payload
+            "autofocus/onfocus=\"confirm(document.domain)\""
         ]
         stealth_payloads = [
             "<script>alert('xss')</script>",
@@ -364,11 +368,11 @@ class AIAssistant:
         if status_code == 404 or "timed out" in str(response).lower():
             executable_payloads = sorted(executable_payloads, key=len)[:10]
         
-        if self.api_key and self.api_endpoint and response:  # External AI mode
+        if self.api_key and self.api_endpoint and response:
             ai_suggestions = self.get_ai_suggestions(response)
             executable_payloads.extend(ai_suggestions)
-            logging.info(f"External AI enhanced payloads added: {len(ai_suggestions)}")
-        elif response:  # Local AI mode (learning from past scans)
+            logging.info(f"External AI suggested {len(ai_suggestions)} payloads: {ai_suggestions[:5]}...")
+        elif response:
             with self.lock:
                 sorted_payloads = sorted(
                     executable_payloads,
@@ -379,7 +383,7 @@ class AIAssistant:
             js_context = '<script' in response or 'javascript:' in response
             optimized = [p for p in sorted_payloads if (html_context and 'on' in p.lower()) or (js_context and ('alert(' in p.lower() or 'confirm(' in p.lower()))]
             executable_payloads = optimized if optimized else sorted_payloads[:20]
-            logging.info(f"Local AI optimized payloads: {len(executable_payloads)} selected")
+            logging.info(f"Local AI optimized {len(executable_payloads)} payloads: {executable_payloads[:5]}...")
         
         return list(set(executable_payloads + other_payloads[:20]))
 
@@ -433,24 +437,27 @@ class Venom:
         })
 
         self.update_headers(args.headers)
-        self.post_data = args.post_data if hasattr(args, 'post_data') else {}
+        self.post_data = args.post_data if hasattr(args, 'post_data') else {'test': 'default'}  # Default POST data
         if args.data:
             self.post_data.update(dict(pair.split('=', 1) for pair in args.data.split('&')))
 
         if args.new_session:
             self.session.cookies.clear()
-            logging.info("New session created by clearing cookies")
+            self.vulnerabilities = []
+            self.visited_urls = set()
+            logging.info("New session created by clearing cookies and prior data")
         elif args.login_url and args.login_data:
             self.establish_session(args.login_url, args.login_data)
 
         self.task_queue = queue.Queue()
         self.lock = threading.Lock()
-        self.vulnerabilities = []
-        self.visited_urls = set()
+        self.vulnerabilities = [] if not hasattr(self, 'vulnerabilities') else self.vulnerabilities
+        self.visited_urls = set() if not hasattr(self, 'visited_urls') else self.visited_urls
         self.total_tests = ThreadSafeCounter()
         self.total_payloads = 0
         self.current_payload = "Initializing..."
         self.current_param = "None"
+        self.current_method = "None"
         self.current_cookie = "None"
         self.start_time = time.time()
         self.running = True
@@ -466,7 +473,7 @@ class Venom:
         self.payloads = self.payload_generator.generate()
         self.total_payloads = len(self.payloads)
         self.ai_assistant = AIAssistant(self.payloads, self.args.ai_key, self.args.ai_platform) if self.args.ai_assist else None
-        print(f"{GREEN}[+] AI Assistance: {'Enabled (Local Learning)' if self.ai_assistant and not self.args.ai_key else 'Enabled (External API)' if self.ai_assistant else 'Disabled'}{RESET}")
+        print(f"{GREEN}[+] AI Assistance: {'Enabled (Local)' if self.ai_assistant and not self.args.ai_key else 'Enabled (External)' if self.ai_assistant else 'Disabled'}{RESET}")
         if self.use_403_bypass:
             print(f"{GREEN}[+] 403 Bypass Enabled{RESET}")
 
@@ -504,21 +511,27 @@ class Venom:
             test_payload = "<script>alert('waf_test')</script>"
             response = self.session.get(self.args.url + "?test=" + test_payload, timeout=self.args.timeout, verify=True)
             headers = response.headers
-            waf_indicators = {'cloudflare': 'cf-ray', 'akamai': 'akamai', 'sucuri': 'sucuri', 'mod_security': 'mod_security'}
+            waf_indicators = {
+                'cloudflare': 'cf-ray',
+                'akamai': 'akamai',
+                'sucuri': 'sucuri',
+                'mod_security': 'mod_security',
+                'captcha': 'captcha'
+            }
             for tech, indicator in waf_indicators.items():
                 if indicator.lower() in str(headers).lower() or tech.lower() in response.text.lower():
                     self.waf_ips_status = f"WAF detected ({tech})"
                     self.is_waf_detected = True
                     break
-            if 'blocked' in response.text.lower() or response.status_code == 403:
-                self.waf_ips_status = "WAF detected (behavioral)"
+            if 'blocked' in response.text.lower() or response.status_code == 403 or 'captcha' in response.text.lower():
+                self.waf_ips_status = "WAF detected (behavioral/captcha)"
                 self.is_waf_detected = True
             if not self.is_waf_detected and headers.get('Content-Security-Policy'):
-                self.waf_ips_status = "IPS detected"
+                self.waf_ips_status = "IPS detected (CSP present)"
                 self.is_waf_detected = True
             if not self.is_waf_detected:
                 self.waf_ips_status = "No WAF/IPS detected"
-            logging.info(f"Checking if the target is protected by some kind of WAF/IPS: {self.waf_ips_status}")
+            logging.info(f"WAF/IPS check result: {self.waf_ips_status}")
         except RequestException as e:
             self.waf_ips_status = "Check failed"
             logging.error(f"WAF/IPS check failed: {e}")
@@ -555,18 +568,16 @@ class Venom:
                     cookies[sanitize_input(key.strip())] = sanitize_input(value.strip())
         return cookies
 
-    def verify_execution(self, url: str) -> bool:
-        if not self.args.verify_execution and not self.args.force_headless:
-            return False
+    def verify_execution(self, url: str, payload: str) -> bool:
         options = Options()
         options.headless = True
-        options.add_argument(f"--user-data-dir={tempfile.mkdtemp()}")  # Unique user data dir
+        options.add_argument(f"--user-data-dir={tempfile.mkdtemp()}")
         options.add_argument("--no-sandbox")
         options.add_argument("--disable-dev-shm-usage")
         driver = None
         try:
             driver = webdriver.Chrome(options=options)
-            driver.set_page_load_timeout(30)  # Set timeout for page load
+            driver.set_page_load_timeout(30)
             driver.get(url)
             try:
                 alert = driver.switch_to.alert
@@ -575,20 +586,14 @@ class Venom:
                 return True
             except NoAlertPresentException:
                 driver.execute_script("window.confirm = function(msg) { return true; }; window.alert = function(msg) { return true; };")
-                driver.get(url)  # Reload to trigger confirm or alert
+                driver.get(url)
                 if 'alert(' in driver.page_source.lower() or 'confirm(' in driver.page_source.lower():
-                    logging.info(f"Execution verified for {url} (Alert/Confirm detected in source)")
+                    logging.info(f"Execution verified for {url} (Alert/Confirm in source)")
                     return True
                 logging.debug(f"No alert/confirm executed for {url}")
                 return False
-        except WebDriverException as e:
-            logging.error(f"WebDriver error: {e}")
-            return False
-        except TimeoutException:
-            logging.warning(f"Headless browser timed out for {url}")
-            return False
-        except Exception as e:
-            logging.error(f"Unexpected error in verify_execution: {e}")
+        except (WebDriverException, TimeoutException) as e:
+            logging.error(f"Headless verification failed: {e}")
             return False
         finally:
             if driver:
@@ -604,31 +609,34 @@ class Venom:
             print(f"{RED}[!] URL not suitable. Aborting.{RESET}")
             self.report()
             return
-        
-        # Test the specific payload directly on the email parameter if applicable
+    
         specific_payload = "autofocus/onfocus=\"confirm(document.domain)\""
         if 'email' in urlparse(self.args.url).query or self.args.payload_field == 'email':
             self.test_request(self.args.url.split('?')[0], {'email': specific_payload}, specific_payload, 'get', "Query String (email)", "")
             if self.args.method in ['post', 'both']:
                 self.test_request(self.args.url.split('?')[0], {'email': specific_payload}, specific_payload, 'post', "Form Field (email)", "")
-        
-        # Test with existing session (if cookies exist)
+    
         if self.session.cookies:
             logging.info("Testing with existing session cookies")
             self.crawl(self.args.url, session_mode="existing")
-        
-        # Test with new session
+    
         original_cookies = self.session.cookies.copy()
         self.session.cookies.clear()
         logging.info("Testing with new session (no cookies)")
         self.crawl(self.args.url, session_mode="new")
-        self.session.cookies.update(original_cookies)  # Restore original cookies
-        
+        self.session.cookies.update(original_cookies)
+    
         with ThreadPoolExecutor(max_workers=self.args.workers) as executor:
+            futures = []
             while not self.task_queue.empty() and self.running:
                 try:
                     task = self.task_queue.get(timeout=15)
-                    future = executor.submit(task)
+                    futures.append(executor.submit(task))
+                except queue.Empty:
+                    break
+        
+            for future in futures:
+                try:
                     response = future.result()
                     if response and response.status_code == 429:
                         self.args.workers = max(1, self.args.workers - 1)
@@ -636,11 +644,9 @@ class Venom:
                         print(f"{YELLOW}[!] Rate limit detected, workers reduced to {self.args.workers}{RESET}")
                     delay = random.uniform(self.args.min_delay, self.args.max_delay)
                     time.sleep(delay)
-                except queue.Empty:
-                    break
                 except Exception as e:
                     logging.error(f"Thread failed: {e}")
-        
+    
         self.running = False
         self._display_status(final=True)
         self.report()
@@ -676,10 +682,15 @@ class Venom:
         base_url = url.split('?', 1)[0]
         base_response = response.text
         
-        for param in active_params:
-            for payload in payloads:
-                self.current_param = param
-                self.test_request(base_url, {param: payload}, payload, method, f"Query String ({param})", base_response)
+        with ThreadPoolExecutor(max_workers=min(self.args.workers, len(active_params))) as executor:
+            futures = []
+            for param in active_params:
+                for payload in payloads:
+                    self.current_param = param
+                    self.current_method = method.upper()
+                    futures.append(executor.submit(self.test_request, base_url, {param: payload}, payload, method, f"{'Query String' if method == 'get' else 'Form Field'} ({param})", base_response))
+            for future in futures:
+                future.result()
 
     def test_form(self, action: str, form: BeautifulSoup, payloads: List[str]) -> None:
         inputs = {inp.get('name'): inp.get('value', '') for inp in form.find_all(['input', 'textarea', 'select']) if inp.get('name')}
@@ -689,15 +700,21 @@ class Venom:
             inputs.update(self.post_data)
         try:
             base_response = self.session.post(action, data=inputs, timeout=self.args.timeout, verify=True).text
+            logging.info(f"Base POST request to {action} with data: {inputs}")
         except RequestException:
             base_response = ""
         
-        for name in inputs:
-            for payload in payloads:
-                self.current_param = name
-                test_params = inputs.copy()
-                test_params[name] = payload
-                self.test_request(action, test_params, payload, 'post', f"Form Field ({name})", base_response)
+        with ThreadPoolExecutor(max_workers=min(self.args.workers, len(inputs))) as executor:
+            futures = []
+            for name in inputs:
+                for payload in payloads:
+                    self.current_param = name
+                    self.current_method = "POST"
+                    test_params = inputs.copy()
+                    test_params[name] = payload
+                    futures.append(executor.submit(self.test_request, action, test_params, payload, 'post', f"Form Field ({name})", base_response))
+            for future in futures:
+                future.result()
 
     def test_cookies(self, url: str, payloads: List[str], base_response: str) -> None:
         cookies = self.extract_cookies()
@@ -709,10 +726,11 @@ class Venom:
             for payload in payloads:
                 self.current_param = f"Cookie: {cookie_name}"
                 self.current_cookie = f"{cookie_name}={payload}"
+                self.current_method = "GET"
                 cookie_str = '; '.join([f"{k}={v if k != cookie_name else payload}" for k, v in cookies.items()])
                 self.session.headers['Cookie'] = cookie_str
                 self.test_request(url, {}, payload, 'get', f"Cookie ({cookie_name})", base_response)
-        self.session.headers = original_headers  # Restore original headers
+        self.session.headers = original_headers
 
     def test_request(self, url: str, params: dict, payload: str, method: str, injection_point: str, 
                     base_response: str) -> Optional[requests.Response]:
@@ -720,7 +738,7 @@ class Venom:
         for attempt in range(retry_attempts):
             try:
                 self.total_tests.increment()
-                self.current_payload = payload  # Show full payload in real-time
+                self.current_payload = payload
                 self._display_status()
                 data = self.post_data.copy() if method == 'post' else None
                 if method == 'post':
@@ -752,16 +770,19 @@ class Venom:
                             self.bypass_performed = True
                             break
                 
-                # Generic reflection check
                 reflected = payload.lower() in response_text or \
-                            any(part.lower() in response_text for part in payload.split())
+                            any(part.lower() in response_text for part in payload.split()) or \
+                            any(tag in response_text for tag in ['<script', '<img', '<svg', 'onerror', 'onload'])
                 if reflected:
                     logging.debug(f"Payload reflected: {payload} in {response_text[:200]}...")
                     print(f"{YELLOW}[!] Reflected Payload: {payload}{RESET}")
                 else:
-                    logging.debug(f"Payload not reflected: {payload}")
-                
-                if not reflected:
+                    soup = BeautifulSoup(resp.text, 'html.parser')
+                    sanitized = soup.get_text().lower()
+                    if '<' not in sanitized and '>' not in sanitized:
+                        logging.info(f"Payload not reflected: {payload} (Likely sanitized or filtered)")
+                    else:
+                        logging.info(f"Payload not reflected: {payload} (No match found)")
                     continue
                 
                 soup = BeautifulSoup(resp.text, 'html.parser')
@@ -769,21 +790,23 @@ class Venom:
                 for tag in soup.find_all(True):
                     tag_str = str(tag).lower()
                     if payload.lower() in tag_str:
-                        in_executable_context = True  # Any tag with payload is potentially executable
-                        if any(attr.startswith('on') or attr in ['src', 'href', 'autofocus'] for attr in tag.attrs) or '<script' in tag_str:
+                        in_executable_context = any(attr.startswith('on') or attr in ['src', 'href', 'autofocus'] for attr in tag.attrs) or '<script' in tag_str
+                        if in_executable_context:
                             logging.debug(f"Executable context confirmed for {payload} in {tag_str[:200]}...")
                         break
                 
                 similarity = self.check_similarity(base_response, resp.text)
-                if similarity > 0.8 and base_response:  # Lowered threshold, skip if no base
-                    logging.debug(f"Response too similar to base (Similarity: {similarity})")
-                    continue
-                
                 full_url = url + ('?' + urlencode(params) if method == 'get' else '')
-                executed = self.verify_execution(full_url) if in_executable_context and (self.args.verify_execution or self.args.force_headless) else in_executable_context
-                if reflected:
+                executed = False
+                if in_executable_context or 'javascript:' in payload.lower():
+                    executed = self.verify_execution(full_url, payload)
+                elif reflected and similarity > 0.85 and base_response:  # Lowered from 0.9
+                    logging.debug(f"Response too similar to base (Similarity: {similarity}), but checking execution")
+                    executed = self.verify_execution(full_url, payload) if self.args.verify_execution else False
+                
+                if reflected or executed:
                     severity = "High" if executed else "Medium" if in_executable_context else "Low"
-                    self.report_vulnerability(full_url, payload, params, f"{injection_point} XSS (Executable, Severity: {severity})", executed)
+                    self.report_vulnerability(full_url, payload, params, f"{injection_point} XSS (Executable: {executed or in_executable_context}, Severity: {severity})", executed)
                     if self.ai_assistant and executed:
                         self.ai_assistant.record_success(payload, "html" if '<' in resp.text else "js")
                     self.payload_generator.update_success(payload)
@@ -807,10 +830,11 @@ class Venom:
         status = f"{BLUE}╔════ Scan Progress ═════╗{RESET}\n" \
                  f"{BLUE}║{RESET} {CYAN}Progress:{RESET} {WHITE}{progress:.1f}%{RESET} {CYAN}Tests:{RESET} {WHITE}{self.total_tests.get()}/{self.total_payloads}{RESET}\n" \
                  f"{BLUE}║{RESET} {CYAN}Vulns:{RESET} {RED}{len(self.vulnerabilities)}{RESET} {CYAN}Time:{RESET} {WHITE}{elapsed}s{RESET}\n" \
-                 f"{BLUE}║{RESET} {CYAN}Current Param:{RESET} {YELLOW}{self.current_param}{RESET}\n" \
+                 f"{BLUE}║{RESET} {CYAN}Method:{RESET} {YELLOW}{self.current_method}{RESET} {CYAN}Param:{RESET} {YELLOW}{self.current_param}{RESET}\n" \
                  f"{BLUE}║{RESET} {CYAN}Current Cookie:{RESET} {ORANGE}{self.current_cookie}{RESET}\n" \
                  f"{BLUE}║{RESET} {CYAN}Current Payload:{RESET} {ORANGE}{self.current_payload}{RESET}\n" \
                  f"{BLUE}╚════════════════════════╝{RESET}"
+        logging.info(f"Tests performed: {self.total_tests.get()}/{self.total_payloads}")
         if final:
             print(status)
         else:
@@ -826,7 +850,7 @@ class Venom:
                 'type': vuln_type,
                 'timestamp': timestamp,
                 'executed': popup,
-                'context': 'JavaScript' if 'script' in payload.lower() else 'HTML',
+                'context': 'JavaScript' if 'script' in payload.lower() or 'javascript:' in payload.lower() else 'HTML',
                 'waf_status': self.waf_ips_status,
                 'bypass': "Yes" if self.bypass_performed or self.use_403_bypass else "No",
                 'params': params,
@@ -866,6 +890,7 @@ class Venom:
                   f"{WHITE}Total Runtime:{RESET} {YELLOW}{runtime} seconds{RESET}\n" \
                   f"{WHITE}URLs Scanned:{RESET} {CYAN}{len(self.visited_urls)}{RESET}\n" \
                   f"{WHITE}Tests Performed:{RESET} {CYAN}{self.total_tests.get()}{RESET}\n" \
+                  f"{WHITE}Last Method:{RESET} {YELLOW}{self.current_method}{RESET} {WHITE}Last Parameter:{RESET} {YELLOW}{self.current_param}{RESET}\n" \
                   f"{WHITE}Vulnerabilities Found:{RESET} {RED}{len(self.vulnerabilities)}{RESET}\n" \
                   f"{WHITE}Executable Vulns:{RESET} {ORANGE}{executed_count}{RESET}\n" \
                   f"{WHITE}Reflected Only:{RESET} {YELLOW}{len(self.vulnerabilities) - executed_count}{RESET}\n"
@@ -874,7 +899,7 @@ class Venom:
             for vuln in self.vulnerabilities:
                 summary += f"{BLUE}║{RESET} {WHITE}URL:{RESET} {GREEN}{vuln['url']}{RESET}\n" \
                            f"{BLUE}║{RESET} {WHITE}Payload:{RESET} {ORANGE}{vuln['payload']}{RESET}\n" \
-                           f"{BLUE}║{RESET} {WHITE}Severity:{RESET} {'\033[92mHigh\033[0m' if vuln['executed'] else '\033[38;5;208mMedium\033[0m' if 'Medium' in vuln['type'] else '\033[93mLow\033[0m'}\n"
+                           f"{BLUE}║{RESET} {WHITE}Severity:{RESET} {'\033[91mHigh\033[0m' if vuln['executed'] else '\033[38;5;208mMedium\033[0m' if 'Medium' in vuln['type'] else '\033[93mLow\033[0m'}\n"
             summary += f"{BLUE}╚════════════════════════════════════╝{RESET}"
         print(summary)
         logging.info(summary)
