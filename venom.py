@@ -112,7 +112,7 @@ def get_banner_and_features() -> str:
     features = [
         "Optimized XSS detection with refined similarity and execution checks",
         "Parallel GET/POST testing across all parameters",
-        "Custom POST parsing from files (SQLmap-compatible)",
+        "Custom POST parsing from files",
         "Dynamic response analysis with automatic execution verification",
         "Advanced WAF/IPS detection with bypass options",
         "Payloads from local, GitHub, or custom sources",
