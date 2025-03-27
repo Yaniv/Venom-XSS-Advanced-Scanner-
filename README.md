@@ -1,44 +1,29 @@
 ![יניב](https://github.com/user-attachments/assets/bb26572f-2d8b-400e-b4e6-7d70536cc51e)
-
-
-About the Tool: Venom Advanced XSS Scanner 2025
-
+Venom Advanced XSS Scanner (Version 5.45)
 Overview
-What is Venom Advanced XSS Scanner?
-The Venom Advanced XSS Scanner is a sophisticated, Python-based tool designed for ethical penetration testers and security researchers to identify Cross-Site Scripting (XSS) vulnerabilities in web applications. Developed with a focus on precision, flexibility, and automation, Venom stands out as a powerful ally in the fight against web security threats. As of March 22, 2025, its latest iteration (Version 5.33) incorporates advanced features that make it a valuable asset for both novice and experienced security professionals.
+
+Venom Advanced XSS Scanner is a cutting-edge, open-source tool designed for ethical penetration testers and security researchers to identify Cross-Site Scripting (XSS) vulnerabilities in web applications. Built with Python, Venom combines precision, performance, and flexibility to deliver a professional-grade solution for vulnerability assessment. Version 5.45 introduces significant enhancements, making it a robust choice for both novice and expert users in the cybersecurity community.
 
 Venom Advanced XSS Scanner is a professional-grade tool for ethical penetration testers to identify XSS vulnerabilities with high accuracy. This version supports HTTP/HTTPS, smart POST/GET requests, custom POST from TXT files, session management, and AI model selection.
 
-Precise XSS Detection with Context-Aware Analysis:
-Venom excels at identifying XSS vulnerabilities by analyzing the context in which payloads are reflected (e.g., HTML attributes, JavaScript, or DOM). This reduces false positives and ensures that reported vulnerabilities are actionable.
-Flexible Session and Cookie Handling:
-The tool supports scanning with existing sessions, new sessions, or custom cookies via the -H/--headers flag. This allows testers to simulate real-world user interactions, making it ideal for authenticated testing scenarios.
-Comprehensive Payload Sourcing:
-Venom pulls payloads from local files (e.g., advanced_xss.txt, xss_payloads.txt), GitHub repositories, and custom directories. With over 8,000 unique payloads loaded in a single run (as seen in logs), it offers extensive coverage of XSS attack vectors.
-Advanced WAF/IPS Detection and 403 Bypass:
-It detects Web Application Firewalls (WAFs) and Intrusion Prevention Systems (IPS) and includes a configurable 403 bypass feature. This ensures testers can adapt to defensive mechanisms and continue scanning effectively.
-AI-Powered Optimization:
-With optional AI assistance (local learning or external API), Venom optimizes payloads based on response analysis, increasing the likelihood of detecting vulnerabilities in complex applications.
-Headless Browser Verification:
-For high-severity findings, Venom uses a headless Chrome browser to verify payload execution (e.g., triggering alert() or confirm()), distinguishing between reflected and executable XSS.
-Real-Time Feedback and Detailed Reporting:
-The tool provides live progress updates (e.g., tests completed, vulnerabilities found) and generates comprehensive reports with full URLs, payloads, and severity levels, making remediation straightforward.
-Cross-Platform and Open-Source:
-Written in Python, Venom runs on Linux, Windows, and macOS, and its open-source nature allows customization and community contributions.
+Key Features
+
+Advanced XSS Detection: Utilizes precise context analysis to detect reflected and stored XSS vulnerabilities, with sanitization checks to minimize false positives.
+Parallel Payload Testing: Leverages multi-threading for high-performance scanning, with adaptive throttling to respect server limits and optimize speed.
+Robust Execution Verification: Integrates a headless Chrome browser to test payload execution across multiple contexts (e.g., DOM, scripts, attributes), ensuring accurate exploit confirmation.
+WAF/IPS Evasion: Supports dynamic bypass payloads for Web Application Firewalls (WAF) and Intrusion Prevention Systems (IPS), with options to simulate 403 responses for testing.
+Custom Payload Integration: Loads payloads from a configurable directory or a specific file, offering flexibility for tailored testing scenarios.
+AI-Driven Optimization: Employs local machine learning (TF-IDF and cosine similarity) or external AI platforms (e.g., xAI, OpenAI) to prioritize effective payloads based on response context.
+Detailed Reporting: Provides comprehensive reports with full URLs, complete payloads, and execution status, exportable in JSON or CSV formats for easy sharing and analysis.
+Ethical Use Enforcement: Requires explicit user confirmation to ensure responsible and ethical application, aligning with professional standards.
 
 
- 
-● Precise XSS detection with context-aware payload analysis
-● Session-aware POST/GET scanning with login and cookie support
-● Custom POST request parsing from TXT files (SQLmap-compatible)
-● Dynamic response comparison using similarity metrics
-● Advanced WAF/IPS detection with configurable 403 bypass
-● Payload sourcing from local files, GitHub, and custom directories
-● AI-powered payload optimization (local or external API)
-● Headless browser verification for executable XSS payloads
-● Real-time scan progress with detailed feedback display
-● Cookie and session injection with flexible new/existing session handling
-● Comprehensive vulnerability reporting with full payload details
+Why Venom?
+
+Venom stands out for its balance of precision, speed, and usability. Whether you’re a penetration tester validating a client’s application, a developer securing your own code, or a researcher exploring XSS techniques, Venom provides the tools you need to succeed—all while upholding ethical standards.
+
+Get Started
+Clone the repository, install dependencies, and run your first scan. Join me in advancing web security—one vulnerability at a time!
 
 Venom Advanced XSS Scanner is a professional-grade tool for ethical penetration testers to identify XSS vulnerabilities with high accuracy. This version supports HTTP/HTTPS, smart POST/GET requests, custom POST from TXT files, multiple custom headers, 403 bypass, and two AI-assisted payload optimization modes:
 - Local AI: Learns from past scans to optimize payloads (no API key needed).
