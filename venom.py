@@ -126,7 +126,7 @@ def get_banner_and_features() -> str:
 {BLUE}║{RESET}                                                                    {BLUE}║{RESET}
 {BLUE}║{RESET}                  {PURPLE}Venom Advanced XSS Scanner 2025{RESET}                   {BLUE}║{RESET}
 {BLUE}║{RESET}                            {WHITE}Version 5.45{RESET}                            {BLUE}║{RESET}
-{BLUE}║{RESET}    {GREEN}Made by: YANIV AVISROR | PENETRATION TESTER | ETHICAL HACKER{RESET}    {BLUE}║{RESET}
+{BLUE}║{RESET}    {GREEN}Made by: VENOM  | PENETRATION TESTER | ETHICAL HACKER{RESET}    {BLUE}║{RESET}
 {BLUE}╚════════════════════════════════════════════════════════════════════╝{RESET}
 """
     features = [
