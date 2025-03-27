@@ -10,6 +10,7 @@ import queue
 import random
 import tempfile
 import socket
+import json
 from urllib.parse import urljoin, urlencode, urlparse, parse_qs
 from bs4 import BeautifulSoup
 from requests.adapters import HTTPAdapter
@@ -124,37 +125,41 @@ def get_banner_and_features() -> str:
 {BLUE}║{RESET}           {CYAN}╚═════╝ ╚══════╝╚═╝  ╚═══╝ ╚═════╝ ╚═╝     ╚═╝{RESET}           {BLUE}║{RESET}
 {BLUE}║{RESET}                                                                    {BLUE}║{RESET}
 {BLUE}║{RESET}                  {PURPLE}Venom Advanced XSS Scanner 2025{RESET}                   {BLUE}║{RESET}
-{BLUE}║{RESET}                            {WHITE}Version 5.43{RESET}                            {BLUE}║{RESET}
+{BLUE}║{RESET}                            {WHITE}Version 5.45{RESET}                            {BLUE}║{RESET}
 {BLUE}║{RESET}    {GREEN}Made by: YANIV AVISROR | PENETRATION TESTER | ETHICAL HACKER{RESET}    {BLUE}║{RESET}
 {BLUE}╚════════════════════════════════════════════════════════════════════╝{RESET}
 """
     features = [
-        f"{WHITE}{BOLD}Advanced XSS detection with form input checks{RESET}",
-        f"{WHITE}{BOLD}Robust URL validation and link crawling{RESET}",
-        f"{WHITE}{BOLD}Ultra-slow, colorful output for readability{RESET}",
-        f"{WHITE}{BOLD}Enhanced headless browser stability{RESET}",
-        f"{WHITE}{BOLD}WAF/IPS evasion with dynamic payloads{RESET}",
-        f"{WHITE}{BOLD}Custom payload integration with debugging{RESET}",
-        f"{WHITE}{BOLD}AI-driven optimization for any site{RESET}",
-        f"{WHITE}{BOLD}Professional-grade reporting{RESET}"
+        f"{WHITE}{BOLD}Advanced XSS detection with precise context analysis{RESET}",
+        f"{WHITE}{BOLD}Parallel payload testing with adaptive throttling{RESET}",
+        f"{WHITE}{BOLD}Robust execution verification with multi-context testing{RESET}",
+        f"{WHITE}{BOLD}WAF/IPS evasion with dynamic bypass payloads{RESET}",
+        f"{WHITE}{BOLD}Custom payload integration from directory or file{RESET}",
+        f"{WHITE}{BOLD}AI-driven payload optimization with ML weighting{RESET}",
+        f"{WHITE}{BOLD}Detailed reporting with full URLs and payloads{RESET}",
+        f"{WHITE}{BOLD}Ethical use enforced with user confirmation{RESET}"
     ]
     return banner + "\n".join(f"{GREEN}●{RESET} {feature}" for feature in features) + "\n"
 
 def parse_args() -> argparse.Namespace:
     banner_and_features = get_banner_and_features()
     description = f"""{banner_and_features}
-Venom Advanced XSS Scanner is a professional-grade tool for ethical penetration testers to detect XSS vulnerabilities across any website. Version 5.43 enhances URL handling, reflection detection, and headless browser reliability.
+Venom Advanced XSS Scanner is a professional-grade tool for ethical penetration testers to detect XSS vulnerabilities. Version 5.45 includes precise context analysis, parallel testing, robust execution verification, and enhanced reporting.
 
 Usage:
-  python3 venom.py <url> [options]
+  python3 venom.py <url> --scan-xss [options]
 
 Examples:
-  python3 venom.py http://sudo.co.il/xss/level4.php --scan-xss --verbose --new-session -w 2 --ai-assist --verify-execution --stealth
-    - Scans with stealth mode and advanced features.
+  python3 venom.py http://sudo.co.il/xss/level4.php --scan-xss --verbose --new-session -w 5 --ai-assist --verify-execution --full-report
+    - Basic scan with AI and execution verification.
+  python3 venom.py http://example.com --scan-xss --stealth --use-403-bypass --export-report report.json
+    - Stealth mode with 403 bypass and JSON export.
+  python3 venom.py http://test.com --scan-xss --simulate-403 --payload-file custom.txt --min-delay 0.2 --max-delay 0.8
+    - Simulate 403 with custom payload file and custom delays.
 """
     
     parser = argparse.ArgumentParser(description=description, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("url", help="Target URL to scan (e.g., http://anywebsite.com).")
+    parser.add_argument("url", help="Target URL to scan (e.g., http://sudo.co.il/xss/level4.php).")
     parser.add_argument("-w", "--workers", type=int, default=5, help="Number of concurrent threads (default: 5, max: 20).")
     parser.add_argument("--ai-assist", action="store_true", help="Enable AI-driven payload optimization.")
     parser.add_argument("--ai-key", type=str, help="API key for external AI platform (e.g., xAI, OpenAI).")
@@ -162,12 +167,14 @@ Examples:
                         help="External AI platform (requires --ai-key).")
     parser.add_argument("--scan-xss", action="store_true", help="Enable XSS scanning (required).", required=True)
     parser.add_argument("--payloads-dir", default="/usr/local/bin/payloads/", help="Directory with custom payload files.")
+    parser.add_argument("--payload-file", type=str, help="Specific payload file to use instead of directory defaults.")
     parser.add_argument("--timeout", type=int, default=30, help="HTTP request timeout in seconds (default: 30).")
     parser.add_argument("--verbose", action="store_true", help="Enable detailed, colorful logging.")
     parser.add_argument("--stealth", action="store_true", help="Enable stealth mode: 2 workers, 5-15s delays.")
-    parser.add_argument("--min-delay", type=float, help="Min delay between requests (default: 1 or 5 in stealth).")
-    parser.add_argument("--max-delay", type=float, help="Max delay between requests (default: 2 or 15 in stealth).")
-    parser.add_argument("--full-report", action="store_true", help="Show all vulnerabilities in final report.")
+    parser.add_argument("--min-delay", type=float, help="Min delay between requests (default: 0.1 or 5 in stealth).")
+    parser.add_argument("--max-delay", type=float, help="Max delay between requests (default: 0.5 or 15 in stealth).")
+    parser.add_argument("--full-report", action="store_true", help="Show detailed vulnerabilities in final report.")
+    parser.add_argument("--export-report", type=str, help="Export report to a file (e.g., report.json, report.csv).")
     parser.add_argument("-H", "--headers", action='append', default=[], help="Custom headers (e.g., 'Cookie: session=abc123').")
     parser.add_argument("--method", choices=['get', 'post', 'both'], default='both', help="HTTP method to test (default: both).")
     parser.add_argument("--data", type=str, help="POST data (e.g., 'key1=value1&key2=value2').")
@@ -178,6 +185,7 @@ Examples:
     parser.add_argument("--verify-execution", action="store_true", help="Verify executable XSS with headless browser.")
     parser.add_argument("--new-session", action="store_true", help="Start a new session, clearing cookies and prior data.")
     parser.add_argument("--use-403-bypass", action="store_true", help="Enable 403 bypass with specialized payloads.")
+    parser.add_argument("--simulate-403", action="store_true", help="Simulate a 403 response to test bypass payloads.")
     parser.add_argument("--no-live-status", action="store_true", help="Disable live status updates.")
 
     print(banner_and_features)
@@ -201,8 +209,8 @@ Examples:
         args.max_delay = args.max_delay if args.max_delay is not None else 15
         print(f"{GREEN}[+] Stealth mode: Workers {args.workers}, Delays {args.min_delay}-{args.max_delay}s{RESET}")
     else:
-        args.min_delay = args.min_delay if args.min_delay is not None else 1.0
-        args.max_delay = args.max_delay if args.max_delay is not None else 2.0
+        args.min_delay = args.min_delay if args.min_delay is not None else 0.1
+        args.max_delay = args.max_delay if args.max_delay is not None else 0.5
     
     if args.post_file:
         post_url, post_headers, post_data = parse_post_file(sanitize_path(args.post_file))
@@ -230,7 +238,7 @@ Examples:
 
 def fetch_payloads_from_github(timeout: int) -> List[str]:
     payloads = []
-    headers = {'User-Agent': 'Venom-XSS-Scanner/5.43'}
+    headers = {'User-Agent': 'Venom-XSS-Scanner/5.45'}
     session = requests.Session()
     session.mount('https://', HTTPAdapter(max_retries=Retry(total=5, backoff_factor=2)))
     github_urls = [
@@ -248,8 +256,9 @@ def fetch_payloads_from_github(timeout: int) -> List[str]:
     return payloads
 
 class PayloadGenerator:
-    def __init__(self, payloads_dir: str, bypass_needed: bool = False, use_403_bypass: bool = False, stealth: bool = False):
+    def __init__(self, payloads_dir: str, payload_file: Optional[str] = None, bypass_needed: bool = False, use_403_bypass: bool = False, stealth: bool = False):
         self.payloads_dir = payloads_dir
+        self.payload_file = payload_file
         self.bypass_needed = bypass_needed
         self.use_403_bypass = use_403_bypass
         self.stealth = stealth
@@ -273,50 +282,65 @@ class PayloadGenerator:
         ]
         
         payloads = []
-        if not os.path.exists(self.payloads_dir):
-            logging.error(f"Payloads directory {self.payloads_dir} does not exist!")
-            return stealth_payloads if self.stealth else default_payloads
-
-        category_map = {
-            'waf_bypass': 'waf_bypass.txt',
-            '403bypass': '403bypass.txt',
-            'default': ['advanced_xss.txt', 'xss_payloads.txt', 'basic_xss.txt', 'custom_payloads.txt']
-        }
-
-        selected_category = 'waf_bypass' if self.bypass_needed else '403bypass' if self.use_403_bypass else 'default'
-        all_files = [f for f in os.listdir(self.payloads_dir) if f.endswith('.txt')]
-        if not all_files:
-            logging.warning(f"No .txt files found in {self.payloads_dir}; using defaults.")
-            return stealth_payloads if self.stealth else default_payloads
-
-        if selected_category == 'default':
-            for filename in category_map['default']:
-                file_path = os.path.join(self.payloads_dir, filename)
-                try:
-                    if os.path.exists(file_path):
-                        with open(file_path, 'r', encoding='utf-8') as f:
-                            file_payloads = [sanitize_input(line.strip()) for line in f if line.strip()]
-                            payloads.extend(file_payloads)
-                            logging.info(f"Loaded {len(file_payloads)} payloads from {file_path}: {file_payloads[:5]}...")
-                    else:
-                        logging.warning(f"Payload file {file_path} not found.")
-                except Exception as e:
-                    logging.error(f"Error loading {file_path}: {e}")
-        else:
-            file_path = os.path.join(self.payloads_dir, category_map[selected_category])
+        if self.payload_file:
+            file_path = sanitize_path(self.payload_file)
             try:
                 if os.path.exists(file_path):
                     with open(file_path, 'r', encoding='utf-8') as f:
-                        payloads.extend(sanitize_input(line.strip()) for line in f if line.strip())
-                    logging.info(f"Loaded {selected_category} payloads from {file_path}: {len(payloads)} payloads")
+                        file_payloads = [sanitize_input(line.strip()) for line in f if line.strip()]
+                        payloads.extend(file_payloads)
+                        logging.info(f"Loaded {len(file_payloads)} payloads from {file_path}: {file_payloads[:5]}...")
                 else:
-                    logging.warning(f"{selected_category} file {file_path} not found; falling back to defaults.")
-                    payloads = default_payloads
+                    logging.warning(f"Payload file {file_path} not found; falling back to defaults.")
+                    payloads = stealth_payloads if self.stealth else default_payloads
             except Exception as e:
                 logging.error(f"Error loading {file_path}: {e}")
-                payloads = default_payloads
+                payloads = stealth_payloads if self.stealth else default_payloads
+        else:
+            if not os.path.exists(self.payloads_dir):
+                logging.error(f"Payloads directory {self.payloads_dir} does not exist!")
+                return stealth_payloads if self.stealth else default_payloads
 
-        if not self.stealth and not self.use_403_bypass:
+            category_map = {
+                'waf_bypass': 'waf_bypass.txt',
+                '403bypass': '403bypass.txt',
+                'default': ['advanced_xss.txt', 'xss_payloads.txt', 'basic_xss.txt', 'custom_payloads.txt']
+            }
+
+            selected_category = 'waf_bypass' if self.bypass_needed else '403bypass' if self.use_403_bypass else 'default'
+            all_files = [f for f in os.listdir(self.payloads_dir) if f.endswith('.txt')]
+            if not all_files:
+                logging.warning(f"No .txt files found in {self.payloads_dir}; using defaults.")
+                return stealth_payloads if self.stealth else default_payloads
+
+            if selected_category == 'default':
+                for filename in category_map['default']:
+                    file_path = os.path.join(self.payloads_dir, filename)
+                    try:
+                        if os.path.exists(file_path):
+                            with open(file_path, 'r', encoding='utf-8') as f:
+                                file_payloads = [sanitize_input(line.strip()) for line in f if line.strip()]
+                                payloads.extend(file_payloads)
+                                logging.info(f"Loaded {len(file_payloads)} payloads from {file_path}: {file_payloads[:5]}...")
+                        else:
+                            logging.warning(f"Payload file {file_path} not found.")
+                    except Exception as e:
+                        logging.error(f"Error loading {file_path}: {e}")
+            else:
+                file_path = os.path.join(self.payloads_dir, category_map[selected_category])
+                try:
+                    if os.path.exists(file_path):
+                        with open(file_path, 'r', encoding='utf-8') as f:
+                            payloads.extend(sanitize_input(line.strip()) for line in f if line.strip())
+                        logging.info(f"Loaded {selected_category} payloads from {file_path}: {len(payloads)} payloads")
+                    else:
+                        logging.warning(f"{selected_category} file {file_path} not found; falling back to defaults.")
+                        payloads = default_payloads
+                except Exception as e:
+                    logging.error(f"Error loading {file_path}: {e}")
+                    payloads = default_payloads
+
+        if not self.stealth and not self.use_403_bypass and not self.payload_file:
             payloads.extend(fetch_payloads_from_github(15))
         
         unique_payloads = list(set(payloads))
@@ -382,10 +406,11 @@ class AIAssistant:
         self.api_endpoint = self.get_api_endpoint() if platform else None
         self.success_history: Dict[str, dict] = {}
         self.lock = threading.Lock()
+        self.vectorizer = TfidfVectorizer()
         if self.api_key and self.api_endpoint:
             logging.info(f"AI assistance enabled with external platform: {platform}, endpoint: {self.api_endpoint}")
         else:
-            logging.info("AI assistance enabled with local learning (no external API)")
+            logging.info("AI assistance enabled with local ML optimization")
 
     def get_api_endpoint(self) -> str:
         endpoints = {
@@ -408,11 +433,20 @@ class AIAssistant:
             logging.info(f"External AI suggested {len(ai_suggestions)} payloads: {ai_suggestions[:5]}...")
         elif response:
             with self.lock:
-                sorted_payloads = sorted(
-                    executable_payloads,
-                    key=lambda p: self.success_history.get(p, {"weight": 0.0})["weight"],
-                    reverse=True
-                )
+                if self.success_history:
+                    # Use TF-IDF and cosine similarity for ML-based ranking
+                    corpus = [response] + [h["context"] for h in self.success_history.values()]
+                    tfidf_matrix = self.vectorizer.fit_transform(corpus)
+                    response_vector = tfidf_matrix[0]
+                    similarities = cosine_similarity(response_vector, tfidf_matrix[1:]).flatten()
+                    sorted_payloads = sorted(
+                        executable_payloads,
+                        key=lambda p: self.success_history.get(p, {"weight": 0.0})["weight"] + 
+                                      (similarities[list(self.success_history.keys()).index(p)] if p in self.success_history else 0),
+                        reverse=True
+                    )
+                else:
+                    sorted_payloads = executable_payloads
             html_context = '<input' in response or '<form' in response or '<textarea' in response
             js_context = '<script' in response or 'javascript:' in response or 'onload' in response
             optimized = [p for p in sorted_payloads if (html_context and 'on' in p.lower()) or (js_context and any(x in p.lower() for x in ['alert(', 'confirm(']))]
@@ -453,6 +487,7 @@ class AIAssistant:
             if status_code == 200:
                 self.success_history[payload]["success_count"] += 1
                 self.success_history[payload]["weight"] = min(1.0, self.success_history[payload]["weight"] + 0.2)
+                self.success_history[payload]["context"] = context
 
 def is_reflected(payload: str, response_text: str) -> bool:
     if not payload.strip():
@@ -464,13 +499,7 @@ def is_reflected(payload: str, response_text: str) -> bool:
         urlencode({'x': payload})[2:],
         payload.replace('<', '%3C').replace('>', '%3E'),
         payload.encode('utf-16le').decode('utf-8', errors='ignore'),
-        payload.replace(' ', ''),
-        re.escape(payload),
-        payload.encode('utf-8').hex(),
-        payload.replace('alert', 'al\\ert'),
-        payload.replace('<script', '<scr\\ipt'),
-        payload[:len(payload)//2],
-        payload[len(payload)//2:]
+        payload.replace(' ', '')
     ]
     response_lower = response_text.lower()
     soup = BeautifulSoup(response_text, 'html.parser')
@@ -486,6 +515,20 @@ def is_reflected(payload: str, response_text: str) -> bool:
     logging.debug(f"No reflection for {payload} in response: {response_text[:100]}...")
     return False
 
+def is_sanitized(payload: str, response_text: str) -> bool:
+    sanitized_patterns = [
+        html.escape(payload),
+        payload.replace('<', '&lt;').replace('>', '&gt;'),
+        payload.replace('"', '&quot;'),
+        payload.replace("'", '&#x27;'),
+        payload.replace('/', '&#x2F;')
+    ]
+    for pattern in sanitized_patterns:
+        if pattern in response_text:
+            logging.debug(f"Payload appears sanitized: {pattern}")
+            return True
+    return False
+
 def is_executable_context(payload: str, soup: BeautifulSoup) -> bool:
     if not payload.strip():
         return False
@@ -496,17 +539,13 @@ def is_executable_context(payload: str, soup: BeautifulSoup) -> bool:
             if tag.name == 'script' or '<script' in tag_str or 'javascript:' in tag_str:
                 logging.debug(f"Executable context (script): {tag_str}")
                 return True
-            if tag.name in ['title', 'meta', 'style'] and not any(x in tag_str for x in ['on', 'javascript:', 'alert(', '<script']):
-                logging.debug(f"Non-executable context ({tag.name}): {tag_str}")
-                continue
-            dangerous_attrs = ['onerror', 'onload', 'onclick', 'onmouseover', 'src', 'href', 'autofocus', 'onfocus', 'onblur', 'onchange']
-            if any(attr in tag.attrs for attr in dangerous_attrs) or tag.name in ['iframe', 'object', 'svg', 'input', 'textarea']:
+            dangerous_attrs = ['onerror', 'onload', 'onclick', 'onmouseover', 'onstart', 'onended', 'onpageshow']
+            if any(attr in tag.attrs and payload_lower in str(tag.attrs[attr]).lower() for attr in dangerous_attrs):
                 logging.debug(f"Executable context (attribute): {tag_str}")
                 return True
-            for attr_value in tag.attrs.values():
-                if isinstance(attr_value, str) and payload_lower in attr_value.lower() and any(attr in tag.attrs for attr in dangerous_attrs):
-                    logging.debug(f"Executable context (attribute value): {tag_str}")
-                    return True
+            if tag.name in ['iframe', 'svg'] and any(attr in tag.attrs for attr in dangerous_attrs):
+                logging.debug(f"Executable context (iframe/svg): {tag_str}")
+                return True
     return False
 
 class Venom:
@@ -562,14 +601,14 @@ class Venom:
         self.headless_runs = 0
 
         self.initial_waf_ips_check()
-        self.payload_generator = PayloadGenerator(self.args.payloads_dir, self.bypass_performed, self.use_403_bypass, self.args.stealth)
+        self.payload_generator = PayloadGenerator(self.args.payloads_dir, self.args.payload_file, self.bypass_performed, self.use_403_bypass, self.args.stealth)
         self.payloads = self.payload_generator.generate()
         self.total_payloads = len(self.payloads)
         self.ai_assistant = AIAssistant(self.payloads, self.args.ai_key, self.args.ai_platform) if self.args.ai_assist else None
         if args.verify_execution:
             self._init_headless_browser()
         
-        print(f"{GREEN}[+] AI Assistance: {'Enabled (Local)' if self.ai_assistant and not self.args.ai_key else 'Enabled (External)' if self.ai_assistant else 'Disabled'}{RESET}")
+        print(f"{GREEN}[+] AI Assistance: {'Enabled (Local ML)' if self.ai_assistant and not self.args.ai_key else 'Enabled (External)' if self.ai_assistant else 'Disabled'}{RESET}")
         if self.use_403_bypass:
             print(f"{ORANGE}[+] 403 Bypass Enabled{RESET}")
         if self.args.no_live_status:
@@ -579,25 +618,25 @@ class Venom:
 
     def _init_headless_browser(self):
         for attempt in range(5):
-            options = Options()
-            options.headless = True
-            options.add_argument(f"--user-data-dir={tempfile.mkdtemp()}")
-            options.add_argument("--no-sandbox")
-            options.add_argument("--disable-dev-shm-usage")
-            options.add_argument("--disable-web-security")
-            options.add_argument("--disable-gpu")
-            port = random.randint(40000, 50000)
-            while True:
-                try:
-                    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                        s.bind(('localhost', port))
-                    break
-                except OSError:
-                    port += 1
-            options.add_argument(f"--remote-debugging-port={port}")
             try:
+                options = Options()
+                options.headless = True
+                options.add_argument(f"--user-data-dir={tempfile.mkdtemp()}")
+                options.add_argument("--no-sandbox")
+                options.add_argument("--disable-dev-shm-usage")
+                options.add_argument("--disable-web-security")
+                options.add_argument("--disable-gpu")
+                port = random.randint(40000, 50000)
+                while True:
+                    try:
+                        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                            s.bind(('localhost', port))
+                        break
+                    except OSError:
+                        port += 1
+                options.add_argument(f"--remote-debugging-port={port}")
                 self.headless_driver = webdriver.Chrome(options=options)
-                self.headless_driver.set_page_load_timeout(60)
+                self.headless_driver.set_page_load_timeout(120)
                 logging.info(f"Headless browser initialized on port {port}")
                 return
             except WebDriverException as e:
@@ -753,41 +792,42 @@ class Venom:
             for cookie in self.session.cookies:
                 self.headless_driver.add_cookie({'name': cookie.name, 'value': cookie.value, 'domain': self.domain})
             
-            if method.lower() == 'get':
-                target_url = url
-                if param:
-                    parsed = urlparse(url)
-                    query = parse_qs(parsed.query)
-                    query[param] = payload
-                    target_url = parsed._replace(query=urlencode(query, doseq=True)).geturl()
-                self.headless_driver.get(target_url)
-            else:
-                temp_file = tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.html')
-                data = data.copy() if data else self.post_data.copy()
-                if param:
-                    data[param] = payload
-                html_content = f"""
-                <html><body><form id='test' method='post' action='{url}'>
-                {''.join(f'<input name="{k}" value="{html.escape(v)}">' for k, v in data.items())}
-                </form><script>document.getElementById('test').submit();</script></body></html>
-                """
-                temp_file.write(html_content)
-                temp_file.close()
-                self.headless_driver.get(f"file://{temp_file.name}")
+            temp_file = tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.html')
+            html_content = f"""
+            <html><body>
+            <script src="http://{self.domain}/xss/analytics.js"></script>
+            <!-- Test multiple contexts -->
+            <div>{payload}</div>
+            <script>{payload if 'script' in payload.lower() else ''}</script>
+            <input type="text" value="" {payload if 'on' in payload.lower() else ''}>
+            </body></html>
+            """
+            temp_file.write(html_content)
+            temp_file.close()
+            self.headless_driver.get(f"file://{temp_file.name}")
             
             try:
                 alert = self.headless_driver.switch_to.alert
                 alert_text = alert.text
                 alert.accept()
                 logging.info(f"Payload executed: {payload} triggered alert '{alert_text}'")
-                os.unlink(temp_file.name) if method.lower() == 'post' else None
                 self.headless_runs += 1
                 return True
             except NoAlertPresentException:
-                return False
+                # Fallback: Try executing JavaScript directly
+                try:
+                    self.headless_driver.execute_script(payload)
+                    logging.info(f"Payload executed via script: {payload}")
+                    self.headless_runs += 1
+                    return True
+                except:
+                    logging.debug(f"Payload {payload} not executable in browser context")
+                    return False
             except TimeoutException:
                 logging.warning(f"Timeout during execution verification for {payload}")
                 return False
+            finally:
+                os.unlink(temp_file.name)
         except WebDriverException as e:
             logging.error(f"Headless verification failed: {e}")
             return False
@@ -806,44 +846,61 @@ class Venom:
             
             payloads = self.ai_assistant.suggest_payloads(response.text, status_code=response.status_code) if self.ai_assistant else self.payloads
             
-            for param in params:
-                for payload in payloads:
-                    self.current_payload = payload[:50] + "..." if len(payload) > 50 else payload
-                    self.current_param = param
-                    self.current_method = method.upper()
-                    self.current_cookie = str(self.session.cookies.get_dict())[:50] + "..." if len(str(self.session.cookies.get_dict())) > 50 else str(self.session.cookies.get_dict())
-                    resp_text, status = self.inject_payload(url, method, payload, param, data)
-                    test_count = self.total_tests.increment()
-                    
-                    if resp_text and status == 200:
-                        soup = BeautifulSoup(resp_text, 'html.parser')
-                        if is_reflected(payload, resp_text):
-                            executable = is_executable_context(payload, soup)
-                            verified = self.verify_execution(url, payload, method, param, data) if self.args.verify_execution and executable else False
-                            vuln_type = "Stored XSS" if '<form' in resp_text and payload in resp_text else "Reflected XSS"
-                            vuln = {
-                                'url': url,
-                                'method': method.upper(),
-                                'param': param,
-                                'payload': payload,
-                                'type': vuln_type,
-                                'executable': executable,
-                                'verified': verified,
-                                'response_snippet': resp_text[:200]
-                            }
+            def test_payload(param, payload):
+                self.current_payload = payload  # Full payload, no truncation
+                self.current_param = param
+                self.current_method = method.upper()
+                self.current_cookie = str(self.session.cookies.get_dict())
+                resp_text, status = self.inject_payload(url, method, payload, param, data)
+                test_count = self.total_tests.increment()
+                
+                if resp_text and status == 200:
+                    soup = BeautifulSoup(resp_text, 'html.parser')
+                    if is_reflected(payload, resp_text) and not is_sanitized(payload, resp_text) and (is_executable_context(payload, soup) or self.args.verify_execution):
+                        executable = is_executable_context(payload, soup)
+                        verified = self.verify_execution(url, payload, method, param, data) if self.args.verify_execution and executable else False
+                        vuln_type = "Stored XSS" if '<form' in resp_text and payload in resp_text else "Reflected XSS"
+                        target_url = url
+                        if method.lower() == 'get' and param:
+                            parsed = urlparse(url)
+                            query = parse_qs(parsed.query)
+                            query[param] = payload
+                            target_url = parsed._replace(query=urlencode(query, doseq=True)).geturl()
+                        vuln = {
+                            'url': url,
+                            'full_url': target_url,
+                            'method': method.upper(),
+                            'param': param,
+                            'payload': payload,
+                            'type': vuln_type,
+                            'executable': executable,
+                            'verified': verified,
+                            'response_snippet': resp_text[:200]
+                        }
+                        with self.lock:
                             self.vulnerabilities.append(vuln)
-                            self.payload_generator.update_success(payload)
-                            if self.ai_assistant:
-                                self.ai_assistant.record_success(payload, resp_text[:500], status)
-                            logging.info(f"{GREEN}Vulnerability found: {vuln_type} - {url} - Param: {param} - Payload: {payload}{RESET}")
-                    
-                    if status == 403 and not self.bypass_performed:
+                        self.payload_generator.update_success(payload)
+                        if self.ai_assistant:
+                            self.ai_assistant.record_success(payload, resp_text[:500], status)
+                        logging.info(f"{GREEN}Vulnerability found: {vuln_type} - {url} - Param: {param} - Payload: {payload}{RESET}")
+                
+                if status == 403 or self.args.simulate_403 and not self.bypass_performed:
+                    with self.lock:
                         self.bypass_performed = True
-                        self.payload_generator = PayloadGenerator(self.args.payloads_dir, True, self.use_403_bypass, self.args.stealth)
+                        self.payload_generator = PayloadGenerator(self.args.payloads_dir, self.args.payload_file, True, self.use_403_bypass, self.args.stealth)
                         self.payloads = self.payload_generator.generate()
-                        logging.info(f"403 detected, switching to bypass payloads: {len(self.payloads)} loaded")
-                    
-                    time.sleep(random.uniform(self.args.min_delay, self.args.max_delay))
+                    logging.info(f"403 simulated/detected, switching to bypass payloads: {len(self.payloads)} loaded")
+                
+                # Adaptive throttling
+                delay = random.uniform(self.args.min_delay, self.args.max_delay)
+                if status == 429:  # Too Many Requests
+                    delay *= 2
+                    logging.warning(f"Rate limit detected (429), increasing delay to {delay}s")
+                time.sleep(delay)
+
+            with ThreadPoolExecutor(max_workers=min(10, self.args.workers)) as executor:
+                for param in params:
+                    executor.map(lambda p: test_payload(param, p), payloads)
         
         except RequestException as e:
             logging.error(f"Scan failed for {url}: {e}")
@@ -910,18 +967,33 @@ class Venom:
         if self.vulnerabilities:
             for i, vuln in enumerate(self.vulnerabilities, 1):
                 print(f"{GREEN}║{RESET} {i}. {RED}{vuln['type']}{RESET}")
-                print(f"{GREEN}║{RESET}    URL: {WHITE}{vuln['url']}{RESET}")
+                print(f"{GREEN}║{RESET}    Base URL: {WHITE}{vuln['url']}{RESET}")
+                print(f"{GREEN}║{RESET}    Full URL: {WHITE}{vuln['full_url']}{RESET}")
                 print(f"{GREEN}║{RESET}    Method: {CYAN}{vuln['method']}{RESET}")
                 print(f"{GREEN}║{RESET}    Parameter: {YELLOW}{vuln['param']}{RESET}")
                 print(f"{GREEN}║{RESET}    Payload: {PURPLE}{vuln['payload']}{RESET}")
                 print(f"{GREEN}║{RESET}    Executable: {GREEN if vuln['executable'] else YELLOW}{'Yes' if vuln['executable'] else 'No'}{RESET}")
-                if self.args.verify_execution:
-                    print(f"{GREEN}║{RESET}    Verified Execution: {GREEN if vuln['verified'] else RED}{'Yes' if vuln['verified'] else 'No'}{RESET}")
+                print(f"{GREEN}║{RESET}    Verified: {GREEN if vuln['verified'] else RED}{'Yes' if vuln['verified'] else 'No'}{RESET}")
                 if self.args.full_report:
                     print(f"{GREEN}║{RESET}    Response Snippet: {WHITE}{vuln['response_snippet']}{RESET}")
         else:
             print(f"{GREEN}║{RESET}    {GREEN}No vulnerabilities detected.{RESET}")
         print(f"{GREEN}╚════════════════════════════════════════════════════════════════════╝{RESET}")
+
+        if self.args.export_report:
+            if self.args.export_report.endswith('.json'):
+                with open(self.args.export_report, 'w', encoding='utf-8') as f:
+                    json.dump(self.vulnerabilities, f, ensure_ascii=False, indent=2)
+                print(f"{GREEN}[+] Report exported to {self.args.export_report}{RESET}")
+            elif self.args.export_report.endswith('.csv'):
+                import csv
+                with open(self.args.export_report, 'w', encoding='utf-8', newline='') as f:
+                    writer = csv.DictWriter(f, fieldnames=['url', 'full_url', 'method', 'param', 'payload', 'type', 'executable', 'verified', 'response_snippet'])
+                    writer.writeheader()
+                    writer.writerows(self.vulnerabilities)
+                print(f"{GREEN}[+] Report exported to {self.args.export_report}{RESET}")
+            else:
+                print(f"{RED}[!] Unsupported export format. Use .json or .csv.{RESET}")
 
 if __name__ == "__main__":
     args = parse_args()
