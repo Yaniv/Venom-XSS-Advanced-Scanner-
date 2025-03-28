@@ -132,7 +132,7 @@ Examples:
     parser.add_argument("-H", "--headers", action='append', default=[], help="Custom headers (e.g., 'Cookie: session=abc123').")
     parser.add_argument("--method", choices=['get', 'post', 'both'], default='both', help="HTTP method to test (default: both).")
     parser.add_argument("--data", type=str, help="POST data (e.g., 'key1=value1&key2=value2').")
-    parser.add_argument("--post-file", type=str, help="TXT file with POST request (SQLmap format).")
+    parser.add_argument("--post-file", type=str, help="TXT file with POST request.")
     parser.add_argument("--new-session", action="store_true", help="Start a new session, clearing cookies.")
     parser.add_argument("--use-403-bypass", action="store_true", help="Prioritize 403 bypass payloads if available.")
     parser.add_argument("--simulate-403", action="store_true", help="Simulate a 403 response to test bypass payloads.")
