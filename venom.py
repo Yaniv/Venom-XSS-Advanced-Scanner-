@@ -88,7 +88,7 @@ def get_banner_and_features() -> str:
 {BLUE}║{RESET}           {CYAN}╚═════╝ ╚══════╝╚═╝  ╚═══╝ ╚═════╝ ╚═╝     ╚═╝{RESET}           {BLUE}║{RESET}
 {BLUE}║{RESET}                                                                    {BLUE}║{RESET}
 {BLUE}║{RESET}                  {PURPLE}Venom Advanced XSS Scanner 2025{RESET}                   {BLUE}║{RESET}
-{BLUE}║{RESET}                            {WHITE}Version 5.47{RESET}                            {BLUE}║{RESET}
+{BLUE}║{RESET}                            {WHITE}Version 5.48{RESET}                            {BLUE}║{RESET}
 {BLUE}╚════════════════════════════════════════════════════════════════════╝{RESET}
 """
     features = [
@@ -97,6 +97,7 @@ def get_banner_and_features() -> str:
         f"{WHITE}{BOLD}Custom payload integration from /usr/local/bin/payloads/{RESET}",
         f"{WHITE}{BOLD}AI-driven payload optimization with WAF/403 bypass{RESET}",
         f"{WHITE}{BOLD}Enhanced endpoint and form parameter discovery{RESET}",
+        f"{WHITE}{BOLD}Support for common request parameters (email, id, search, etc.){RESET}",
         f"{WHITE}{BOLD}Anonymous operation mode with Tor support{RESET}"
     ]
     return banner + "\n".join(f"{GREEN}●{RESET} {feature}" for feature in features) + "\n"
@@ -104,7 +105,7 @@ def get_banner_and_features() -> str:
 def parse_args() -> argparse.Namespace:
     banner_and_features = get_banner_and_features()
     description = f"""{banner_and_features}
-Venom Advanced XSS Scanner is a tool for ethical penetration testers to detect XSS vulnerabilities anonymously. Version 5.47 supports over 8000 payloads, extended event handlers, and AI-driven WAF/403 bypass.
+Venom Advanced XSS Scanner is a tool for ethical penetration testers to detect XSS vulnerabilities anonymously. Version 5.48 supports over 8000 payloads, extended event handlers, AI-driven WAF/403 bypass, and common request parameters.
 
 Usage:
   python3 venom.py <url> --scan-xss [options]
@@ -114,8 +115,8 @@ Examples:
     - Anonymous scan with Tor and AI optimization.
   python3 venom.py http://example.com --scan-xss --stealth --use-403-bypass --log-output
     - Stealth mode with 403 bypass and live logging.
-  python3 venom.py http://test.com --scan-xss --extended-events --ai-assist
-    - Scan with extended event handlers and AI assistance.
+  python3 venom.py http://test.com --scan-xss --extended-events --extra-params "email,id,search"
+    - Scan with extended events and additional parameters.
 """
     
     parser = argparse.ArgumentParser(description=description, formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -147,6 +148,7 @@ Examples:
                         help="External AI platform (requires --ai-key).")
     parser.add_argument("--log-output", action="store_true", help="Enable console logging alongside file (overrides anonymous mode restriction).")
     parser.add_argument("--extended-events", action="store_true", help="Use extended event handlers (onmouseover, onclick, etc.).")
+    parser.add_argument("--extra-params", type=str, help="Comma-separated list of additional parameters to test (e.g., 'email,id,search').")
 
     print(banner_and_features)
     while True:
@@ -196,6 +198,8 @@ Examples:
         print(f"{GREEN}[+] AI assistance enabled{RESET}")
     if args.extended_events:
         print(f"{GREEN}[+] Extended event handlers enabled{RESET}")
+    if args.extra_params:
+        print(f"{GREEN}[+] Extra parameters enabled: {args.extra_params}{RESET}")
     
     setup_logging(args.verbose, args.log_output, args.anonymous)
     return args
@@ -463,6 +467,7 @@ class Venom:
         self.use_403_bypass = args.use_403_bypass
         self.is_waf_detected = False
         self.active_params = []
+        self.extra_params = args.extra_params.split(',') if args.extra_params else ['email', 'id', 'search', 'name', 'username', 'message']
 
         self.initial_waf_ips_check()
         self.payload_generator = PayloadGenerator(self.args.payloads_dir, self.args.payload_file, self.bypass_performed, self.use_403_bypass, self.args.stealth, self.args.extended_events)
@@ -557,8 +562,11 @@ class Venom:
             if tag.name == 'a' and 'href' in tag.attrs:
                 href_params = parse_qs(urlparse(tag['href']).query).keys()
                 params.update(href_params)
+        # Add default extra parameters if not already present
+        for extra_param in self.extra_params:
+            params.add(extra_param)
         self.active_params = list(params)
-        logging.debug(f"Extracted parameters: {len(self.active_params)}")
+        logging.debug(f"Extracted parameters: {len(self.active_params)} (including extras: {self.extra_params})")
         return self.active_params
 
     def inject_payload(self, url: str, method: str, payload: str, param: str = None, data: Dict[str, str] = None) -> tuple[Optional[str], int]:
