@@ -41,7 +41,7 @@ class ColoredFormatter(logging.Formatter):
 
 def setup_logging(verbose: bool, log_output: bool, anonymous: bool):
     handlers = [logging.FileHandler(log_file, mode='a', encoding='utf-8')]
-    if log_output and not anonymous:  # Only add console logging if requested and not anonymous
+    if log_output and not anonymous:
         handlers.append(logging.StreamHandler(sys.stdout))
     logging.basicConfig(
         level=logging.DEBUG if verbose else logging.INFO,
@@ -88,15 +88,15 @@ def get_banner_and_features() -> str:
 {BLUE}║{RESET}           {CYAN}╚═════╝ ╚══════╝╚═╝  ╚═══╝ ╚═════╝ ╚═╝     ╚═╝{RESET}           {BLUE}║{RESET}
 {BLUE}║{RESET}                                                                    {BLUE}║{RESET}
 {BLUE}║{RESET}                  {PURPLE}Venom Advanced XSS Scanner 2025{RESET}                   {BLUE}║{RESET}
-{BLUE}║{RESET}                            {WHITE}Version 5.46{RESET}                            {BLUE}║{RESET}
+{BLUE}║{RESET}                            {WHITE}Version 5.47{RESET}                            {BLUE}║{RESET}
 {BLUE}╚════════════════════════════════════════════════════════════════════╝{RESET}
 """
     features = [
-        f"{WHITE}{BOLD}Advanced XSS detection with precise context analysis{RESET}",
+        f"{WHITE}{BOLD}Advanced XSS detection with extended event handlers{RESET}",
         f"{WHITE}{BOLD}Parallel payload testing with adaptive throttling{RESET}",
-        f"{WHITE}{BOLD}Custom payload integration from directory or file{RESET}",
-        f"{WHITE}{BOLD}AI-driven payload optimization with ML weighting{RESET}",
-        f"{WHITE}{BOLD}Detailed reporting with full URLs and payloads{RESET}",
+        f"{WHITE}{BOLD}Custom payload integration from /usr/local/bin/payloads/{RESET}",
+        f"{WHITE}{BOLD}AI-driven payload optimization with WAF/403 bypass{RESET}",
+        f"{WHITE}{BOLD}Enhanced endpoint and form parameter discovery{RESET}",
         f"{WHITE}{BOLD}Anonymous operation mode with Tor support{RESET}"
     ]
     return banner + "\n".join(f"{GREEN}●{RESET} {feature}" for feature in features) + "\n"
@@ -104,7 +104,7 @@ def get_banner_and_features() -> str:
 def parse_args() -> argparse.Namespace:
     banner_and_features = get_banner_and_features()
     description = f"""{banner_and_features}
-Venom Advanced XSS Scanner is a tool for ethical penetration testers to detect XSS vulnerabilities anonymously. Version 5.46 supports over 8000 payloads and AI optimization.
+Venom Advanced XSS Scanner is a tool for ethical penetration testers to detect XSS vulnerabilities anonymously. Version 5.47 supports over 8000 payloads, extended event handlers, and AI-driven WAF/403 bypass.
 
 Usage:
   python3 venom.py <url> --scan-xss [options]
@@ -114,6 +114,8 @@ Examples:
     - Anonymous scan with Tor and AI optimization.
   python3 venom.py http://example.com --scan-xss --stealth --use-403-bypass --log-output
     - Stealth mode with 403 bypass and live logging.
+  python3 venom.py http://test.com --scan-xss --extended-events --ai-assist
+    - Scan with extended event handlers and AI assistance.
 """
     
     parser = argparse.ArgumentParser(description=description, formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -134,16 +136,17 @@ Examples:
     parser.add_argument("--data", type=str, help="POST data (e.g., 'key1=value1&key2=value2').")
     parser.add_argument("--post-file", type=str, help="TXT file with POST request.")
     parser.add_argument("--new-session", action="store_true", help="Start a new session, clearing cookies.")
-    parser.add_argument("--use-403-bypass", action="store_true", help="Prioritize 403 bypass payloads if available.")
+    parser.add_argument("--use-403-bypass", action="store_true", help="Prioritize 403 bypass payloads from 403bypass.txt.")
     parser.add_argument("--simulate-403", action="store_true", help="Simulate a 403 response to test bypass payloads.")
     parser.add_argument("--no-live-status", action="store_true", help="Disable live status updates.")
     parser.add_argument("--anonymous", action="store_true", help="Run in anonymous mode (no identifiable data).")
     parser.add_argument("--use-tor", action="store_true", help="Route traffic through Tor (requires Tor on port 9050).")
-    parser.add_argument("--ai-assist", action="store_true", help="Enable AI-driven payload optimization.")
+    parser.add_argument("--ai-assist", action="store_true", help="Enable AI-driven payload optimization and WAF/403 bypass.")
     parser.add_argument("--ai-key", type=str, help="API key for external AI platform (optional).")
     parser.add_argument("--ai-platform", type=str, choices=['xai-grok', 'openai-gpt3', 'google-gemini'],
                         help="External AI platform (requires --ai-key).")
     parser.add_argument("--log-output", action="store_true", help="Enable console logging alongside file (overrides anonymous mode restriction).")
+    parser.add_argument("--extended-events", action="store_true", help="Use extended event handlers (onmouseover, onclick, etc.).")
 
     print(banner_and_features)
     while True:
@@ -191,6 +194,8 @@ Examples:
         print(f"{GREEN}[+] Tor routing enabled (ensure Tor service is running on port 9050){RESET}")
     if args.ai_assist:
         print(f"{GREEN}[+] AI assistance enabled{RESET}")
+    if args.extended_events:
+        print(f"{GREEN}[+] Extended event handlers enabled{RESET}")
     
     setup_logging(args.verbose, args.log_output, args.anonymous)
     return args
@@ -237,10 +242,11 @@ def setup_tor_proxy():
     logging.info("Tor proxy configured (SOCKS5 localhost:9050)")
 
 class AIAssistant:
-    def __init__(self, payloads: List[str], api_key: Optional[str] = None, platform: Optional[str] = None):
+    def __init__(self, payloads: List[str], api_key: Optional[str] = None, platform: Optional[str] = None, extended_events: bool = False):
         self.payloads = payloads
         self.api_key = api_key
         self.platform = platform
+        self.extended_events = extended_events
         self.api_endpoint = self.get_api_endpoint() if platform else None
         self.success_history: Dict[str, dict] = {}
         self.lock = threading.Lock()
@@ -258,9 +264,13 @@ class AIAssistant:
         }
         return endpoints.get(self.platform, "https://api.xai.com/v1/completions")
 
-    def suggest_payloads(self, response: Optional[str] = None, status_code: int = 200) -> List[str]:
+    def suggest_payloads(self, response: Optional[str] = None, status_code: int = 200, waf_detected: bool = False) -> List[str]:
         executable_payloads = [p for p in self.payloads if any(x in p.lower() for x in ['alert(', 'on', 'confirm(', 'javascript:'])]
         other_payloads = [p for p in self.payloads if p not in executable_payloads]
+        
+        if waf_detected and not response:
+            bypass_payloads = [p for p in self.payloads if any(x in p.lower() for x in ['../', '//', '/*', '<!--'])]
+            return bypass_payloads + executable_payloads[:20]
         
         if not response:
             return executable_payloads + other_payloads[:20]
@@ -282,8 +292,13 @@ class AIAssistant:
             
             html_context = '<input' in response or '<form' in response or '<textarea' in response
             js_context = '<script' in response or 'javascript:' in response or 'onload' in response
-            optimized = [p for p in sorted_payloads if (html_context and 'on' in p.lower()) or (js_context and any(x in p.lower() for x in ['alert(', 'confirm(']))]
-            executable_payloads = optimized if optimized else sorted_payloads[:min(1000, len(sorted_payloads))]  # Limit to 1000 for performance
+            optimized = []
+            if self.extended_events:
+                optimized = [p for p in sorted_payloads if (html_context and any(x in p.lower() for x in ['onmouseover', 'onclick', 'onerror'])) or 
+                            (js_context and any(x in p.lower() for x in ['alert(', 'confirm(']))]
+            else:
+                optimized = [p for p in sorted_payloads if (html_context and 'on' in p.lower()) or (js_context and any(x in p.lower() for x in ['alert(', 'confirm(']))]
+            executable_payloads = optimized if optimized else sorted_payloads[:min(1000, len(sorted_payloads))]
         
         logging.info(f"AI optimized {len(executable_payloads)} payloads")
         return list(set(executable_payloads + other_payloads[:20]))
@@ -298,12 +313,13 @@ class AIAssistant:
                 self.success_history[payload]["context"] = context
 
 class PayloadGenerator:
-    def __init__(self, payloads_dir: str, payload_file: Optional[str] = None, bypass_needed: bool = False, use_403_bypass: bool = False, stealth: bool = False):
+    def __init__(self, payloads_dir: str, payload_file: Optional[str] = None, bypass_needed: bool = False, use_403_bypass: bool = False, stealth: bool = False, extended_events: bool = False):
         self.payloads_dir = payloads_dir
         self.payload_file = payload_file
         self.bypass_needed = bypass_needed
         self.use_403_bypass = use_403_bypass
         self.stealth = stealth
+        self.extended_events = extended_events
         self.payloads = self.load_payloads()
         self.previous_success = []
 
@@ -312,14 +328,16 @@ class PayloadGenerator:
             "<script>alert('test')</script>",
             "<img src=x onerror=alert('test')>",
             "<svg onload=alert('test')>",
-            "javascript:alert('test')"
+            "javascript:alert('test')",
+            "<div onmouseover=alert('test')>Hover</div>",
+            "<button onclick=alert('test')>Click</button>"
         ]
         stealth_payloads = [
             "<script>alert('xss')</script>",
             "<img src=x onerror=alert(1)>"
         ]
         
-        payloads = set()  # Use set to avoid duplicates from the start
+        payloads = set()
         if self.payload_file:
             file_path = sanitize_path(self.payload_file)
             try:
@@ -360,7 +378,6 @@ class PayloadGenerator:
                 except Exception as e:
                     logging.error(f"Error loading {file_path}: {e}")
 
-            # Load all .txt files
             for filename in all_files:
                 file_path = os.path.join(self.payloads_dir, filename)
                 try:
@@ -380,6 +397,12 @@ class PayloadGenerator:
                 return stealth_payloads if self.stealth else default_payloads
 
         unique_payloads = list(payloads)
+        if self.extended_events:
+            unique_payloads.extend([
+                "<img src=x onmouseover=alert('test')>",
+                "<div onclick=alert('test')>Click me</div>",
+                "<input type=text onfocus=alert('test')>"
+            ])
         logging.debug(f"Total unique payloads loaded: {len(unique_payloads)}")
         return unique_payloads if unique_payloads else (stealth_payloads if self.stealth else default_payloads)
 
@@ -408,7 +431,7 @@ class Venom:
         if args.use_tor:
             setup_tor_proxy()
         if args.anonymous:
-            self.session.headers.pop('Referer', None)  # Remove identifiable headers
+            self.session.headers.pop('Referer', None)
 
         self.update_headers(args.headers)
         self.post_data = args.post_data if hasattr(args, 'post_data') else {'test': 'default'}
@@ -442,11 +465,11 @@ class Venom:
         self.active_params = []
 
         self.initial_waf_ips_check()
-        self.payload_generator = PayloadGenerator(self.args.payloads_dir, self.args.payload_file, self.bypass_performed, self.use_403_bypass, self.args.stealth)
+        self.payload_generator = PayloadGenerator(self.args.payloads_dir, self.args.payload_file, self.bypass_performed, self.use_403_bypass, self.args.stealth, self.args.extended_events)
         self.payloads = self.payload_generator.generate()
-        self.ai_assistant = AIAssistant(self.payloads, self.args.ai_key, self.args.ai_platform) if args.ai_assist else None
+        self.ai_assistant = AIAssistant(self.payloads, self.args.ai_key, self.args.ai_platform, self.args.extended_events) if args.ai_assist else None
         if self.ai_assistant:
-            self.payloads = self.ai_assistant.suggest_payloads()
+            self.payloads = self.ai_assistant.suggest_payloads(waf_detected=self.is_waf_detected)
         self.total_payloads = len(self.payloads)
 
     def update_headers(self, headers: List[str]) -> None:
@@ -501,18 +524,39 @@ class Venom:
                 if parsed.netloc == self.domain and absolute_url not in self.visited_urls:
                     urls.add(absolute_url)
                     self.task_queue.put((absolute_url, 'get', {}))
+            for form in soup.find_all('form'):
+                action = form.get('action')
+                if action:
+                    absolute_url = urljoin(base_url, action)
+                    if urlparse(absolute_url).netloc == self.domain and absolute_url not in self.visited_urls:
+                        urls.add(absolute_url)
+                        method = form.get('method', 'get').lower()
+                        self.task_queue.put((absolute_url, method, self.extract_form_data(form)))
             logging.info(f"Crawled {len(urls)} URLs")
         except RequestException:
             logging.error("Crawl failed")
         return list(urls)
 
+    def extract_form_data(self, form: BeautifulSoup) -> Dict[str, str]:
+        data = {}
+        for input_tag in form.find_all(['input', 'textarea', 'select']):
+            name = input_tag.get('name')
+            if name:
+                value = input_tag.get('value', 'test')
+                data[sanitize_input(name)] = sanitize_input(value)
+        return data
+
     def extract_params(self, url: str, response_text: str) -> List[str]:
         params = set(parse_qs(urlparse(url).query).keys())
         soup = BeautifulSoup(response_text, 'html.parser')
-        for form in soup.find_all('form'):
-            for input_tag in form.find_all(['input', 'textarea', 'select']):
-                if input_tag.get('name'):
-                    params.add(input_tag['name'])
+        for tag in soup.find_all(['input', 'textarea', 'select', 'button', 'a']):
+            if tag.get('name'):
+                params.add(tag['name'])
+            if tag.get('id'):
+                params.add(tag['id'])
+            if tag.name == 'a' and 'href' in tag.attrs:
+                href_params = parse_qs(urlparse(tag['href']).query).keys()
+                params.update(href_params)
         self.active_params = list(params)
         logging.debug(f"Extracted parameters: {len(self.active_params)}")
         return self.active_params
@@ -549,7 +593,7 @@ class Venom:
             if not params and method.lower() == 'post':
                 params = list(data.keys())
             
-            payloads = self.ai_assistant.suggest_payloads(response.text, response.status_code) if self.ai_assistant else self.payload_generator.generate()
+            payloads = self.ai_assistant.suggest_payloads(response.text, response.status_code, self.is_waf_detected) if self.ai_assistant else self.payload_generator.generate()
             
             def test_payload(param, payload):
                 self.current_payload = payload
