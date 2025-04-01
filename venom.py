@@ -29,11 +29,7 @@ import socket as sock
 log_file = "venom_anonymous.log"
 class ColoredFormatter(logging.Formatter):
     COLORS = {
-        'DEBUG': '\033[94m',  # Blue
-        'INFO': '\033[92m',   # Green
-        'WARNING': '\033[93m', # Yellow
-        'ERROR': '\033[91m',  # Red
-        'RESET': '\033[0m'
+        'DEBUG': '\033[94m', 'INFO': '\033[92m', 'WARNING': '\033[93m', 'ERROR': '\033[91m', 'RESET': '\033[0m'
     }
     def format(self, record):
         log_msg = super().format(record)
@@ -96,8 +92,9 @@ def get_banner_and_features() -> str:
         f"{WHITE}{BOLD}Parallel payload testing with adaptive throttling{RESET}",
         f"{WHITE}{BOLD}Custom payload integration from /usr/local/bin/payloads/{RESET}",
         f"{WHITE}{BOLD}AI-driven payload optimization with WAF/403 bypass{RESET}",
-        f"{WHITE}{BOLD}Enhanced endpoint and form parameter discovery{RESET}",
-        f"{WHITE}{BOLD}Support for common request parameters (email, id, search, etc.){RESET}",
+        f"{WHITE}{BOLD}Subdomain scanning from text file support{RESET}",
+        f"{WHITE}{BOLD}Comprehensive parameter testing for XSS{RESET}",
+        f"{WHITE}{BOLD}Enhanced endpoint discovery and crawling{RESET}",
         f"{WHITE}{BOLD}Anonymous operation mode with Tor support{RESET}"
     ]
     return banner + "\n".join(f"{GREEN}●{RESET} {feature}" for feature in features) + "\n"
@@ -105,24 +102,26 @@ def get_banner_and_features() -> str:
 def parse_args() -> argparse.Namespace:
     banner_and_features = get_banner_and_features()
     description = f"""{banner_and_features}
-Venom Advanced XSS Scanner is a tool for ethical penetration testers to detect XSS vulnerabilities anonymously. Version 5.48 supports over 8000 payloads, extended event handlers, AI-driven WAF/403 bypass, and common request parameters.
+Venom Advanced XSS Scanner is a tool for ethical penetration testers to detect XSS vulnerabilities anonymously. Version 5.48 supports over 8000 payloads, extended event handlers, AI-driven WAF/403 bypass, subdomain scanning, and comprehensive parameter testing.
 
 Usage:
   python3 venom.py <url> --scan-xss [options]
 
 Examples:
-  python3 venom.py http://target.com --scan-xss --anonymous --use-tor -w 5 --ai-assist
-    - Anonymous scan with Tor and AI optimization.
-  python3 venom.py http://example.com --scan-xss --stealth --use-403-bypass --log-output
-    - Stealth mode with 403 bypass and live logging.
-  python3 venom.py http://test.com --scan-xss --extended-events --extra-params "email,id,search"
-    - Scan with extended events and additional parameters.
+  python3 venom.py http://target.com --scan-xss --anonymous --use-tor -w 5 --ai-assist --subdomains subdomains.txt
+    - Anonymous scan with Tor, AI optimization, and subdomain list.
+  python3 venom.py http://example.com --scan-xss --stealth --use-403-bypass --log-output --all-params
+    - Stealth mode with 403 bypass, live logging, and all parameter testing.
+  python3 venom.py http://test.com --scan-xss --extended-events --extra-params "email,id,search" --ai-platform xai-grok --ai-key YOUR_API_KEY
+    - Advanced scan with extended events, extra parameters, and AI assistance via xAI Grok.
 """
     
     parser = argparse.ArgumentParser(description=description, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("url", help="Target URL to scan (e.g., http://target.com).")
     parser.add_argument("-w", "--workers", type=int, default=5, help="Number of concurrent threads (default: 5, max: 20).")
     parser.add_argument("--scan-xss", action="store_true", help="Enable XSS scanning (required).", required=True)
+    parser.add_argument("--subdomains", type=str, help="Text file containing subdomains to scan (e.g., subdomains.txt).")
+    parser.add_argument("--all-params", action="store_true", help="Ensure all discovered parameters are tested for XSS.")
     parser.add_argument("--payloads-dir", default="/usr/local/bin/payloads/", help="Directory with custom payload files (default: /usr/local/bin/payloads/).")
     parser.add_argument("--payload-file", type=str, help="Specific payload file to use instead of directory.")
     parser.add_argument("--timeout", type=int, default=30, help="HTTP request timeout in seconds (default: 30).")
@@ -143,9 +142,9 @@ Examples:
     parser.add_argument("--anonymous", action="store_true", help="Run in anonymous mode (no identifiable data).")
     parser.add_argument("--use-tor", action="store_true", help="Route traffic through Tor (requires Tor on port 9050).")
     parser.add_argument("--ai-assist", action="store_true", help="Enable AI-driven payload optimization and WAF/403 bypass.")
-    parser.add_argument("--ai-key", type=str, help="API key for external AI platform (optional).")
+    parser.add_argument("--ai-key", type=str, help="API key for external AI platform (required if --ai-platform is used).")
     parser.add_argument("--ai-platform", type=str, choices=['xai-grok', 'openai-gpt3', 'google-gemini'],
-                        help="External AI platform (requires --ai-key).")
+                        help="External AI platform for optimization (requires --ai-key).")
     parser.add_argument("--log-output", action="store_true", help="Enable console logging alongside file (overrides anonymous mode restriction).")
     parser.add_argument("--extended-events", action="store_true", help="Use extended event handlers (onmouseover, onclick, etc.).")
     parser.add_argument("--extra-params", type=str, help="Comma-separated list of additional parameters to test (e.g., 'email,id,search').")
@@ -200,6 +199,11 @@ Examples:
         print(f"{GREEN}[+] Extended event handlers enabled{RESET}")
     if args.extra_params:
         print(f"{GREEN}[+] Extra parameters enabled: {args.extra_params}{RESET}")
+    if args.subdomains:
+        args.subdomains = sanitize_path(args.subdomains)
+        print(f"{GREEN}[+] Subdomain scanning enabled with file: {args.subdomains}{RESET}")
+    if args.all_params:
+        print(f"{GREEN}[+] All parameters will be tested for XSS{RESET}")
     
     setup_logging(args.verbose, args.log_output, args.anonymous)
     return args
@@ -468,6 +472,7 @@ class Venom:
         self.is_waf_detected = False
         self.active_params = []
         self.extra_params = args.extra_params.split(',') if args.extra_params else ['email', 'id', 'search', 'name', 'username', 'message']
+        self.subdomains = self.load_subdomains() if args.subdomains else []
 
         self.initial_waf_ips_check()
         self.payload_generator = PayloadGenerator(self.args.payloads_dir, self.args.payload_file, self.bypass_performed, self.use_403_bypass, self.args.stealth, self.args.extended_events)
@@ -476,6 +481,21 @@ class Venom:
         if self.ai_assistant:
             self.payloads = self.ai_assistant.suggest_payloads(waf_detected=self.is_waf_detected)
         self.total_payloads = len(self.payloads)
+
+    def load_subdomains(self) -> List[str]:
+        subdomains = []
+        try:
+            with open(self.args.subdomains, 'r', encoding='utf-8') as f:
+                for line in f:
+                    subdomain = line.strip()
+                    if subdomain:
+                        full_url = f"http://{subdomain}.{self.domain}" if not subdomain.startswith('http') else subdomain
+                        subdomains.append(full_url)
+            logging.info(f"Loaded {len(subdomains)} subdomains from {self.args.subdomains}")
+            return subdomains
+        except Exception as e:
+            logging.error(f"Failed to load subdomains from {self.args.subdomains}: {e}")
+            return []
 
     def update_headers(self, headers: List[str]) -> None:
         if not headers:
@@ -502,22 +522,23 @@ class Venom:
             if not self.is_waf_detected:
                 self.waf_ips_status = "No WAF/IPS detected"
             logging.info(f"WAF/IPS check result: {self.waf_ips_status}")
-        except RequestException:
+        except RequestException as e:
             self.waf_ips_status = "Check failed"
-            logging.error("WAF/IPS check failed")
+            logging.error(f"WAF/IPS check failed: {e}")
 
     def check_connection(self, url: str) -> bool:
         try:
             response = self.session.head(url, timeout=self.args.timeout, allow_redirects=True)
+            logging.debug(f"Connection check for {url}: {response.status_code}")
             return response.status_code < 400
-        except RequestException:
-            logging.error("Connection check failed")
+        except RequestException as e:
+            logging.error(f"Connection check failed for {url}: {e}")
             return False
 
     def crawl_links(self, base_url: str) -> List[str]:
         urls = set([base_url])
         if not self.check_connection(base_url):
-            logging.error("Base URL not reachable")
+            logging.error(f"Base URL {base_url} not reachable")
             return list(urls)
         
         try:
@@ -537,9 +558,9 @@ class Venom:
                         urls.add(absolute_url)
                         method = form.get('method', 'get').lower()
                         self.task_queue.put((absolute_url, method, self.extract_form_data(form)))
-            logging.info(f"Crawled {len(urls)} URLs")
-        except RequestException:
-            logging.error("Crawl failed")
+            logging.info(f"Crawled {len(urls)} URLs from {base_url}")
+        except RequestException as e:
+            logging.error(f"Crawl failed for {base_url}: {e}")
         return list(urls)
 
     def extract_form_data(self, form: BeautifulSoup) -> Dict[str, str]:
@@ -562,11 +583,19 @@ class Venom:
             if tag.name == 'a' and 'href' in tag.attrs:
                 href_params = parse_qs(urlparse(tag['href']).query).keys()
                 params.update(href_params)
-        # Add default extra parameters if not already present
+        if self.args.all_params:
+            for tag in soup.find_all(True):
+                for attr in tag.attrs:
+                    if attr in ['name', 'id', 'data-name', 'class']:
+                        value = tag[attr]
+                        if isinstance(value, list):  # Handle multi-valued attributes like 'class'
+                            params.update(str(v) for v in value)
+                        else:
+                            params.add(str(value))
         for extra_param in self.extra_params:
             params.add(extra_param)
         self.active_params = list(params)
-        logging.debug(f"Extracted parameters: {len(self.active_params)} (including extras: {self.extra_params})")
+        logging.debug(f"Extracted {len(self.active_params)} parameters from {url}")
         return self.active_params
 
     def inject_payload(self, url: str, method: str, payload: str, param: str = None, data: Dict[str, str] = None) -> tuple[Optional[str], int]:
@@ -584,13 +613,15 @@ class Venom:
                 if param:
                     data[param] = payload
                 response = self.session.post(url, data=data, timeout=self.args.timeout, verify=True)
+            logging.debug(f"Injected payload {payload} into {url} ({method}) - Status: {response.status_code}")
             return response.text, response.status_code
-        except RequestException:
-            logging.error("Payload injection failed")
+        except RequestException as e:
+            logging.error(f"Payload injection failed for {url}: {e}")
             return None, 0
 
     def scan_url(self, url: str, method: str, data: Dict[str, str]):
         if url in self.visited_urls:
+            logging.debug(f"Skipping already visited URL: {url}")
             return
         self.visited_urls.add(url)
         
@@ -634,19 +665,21 @@ class Venom:
                 for param in params:
                     executor.map(lambda p: test_payload(param, p), payloads)
         
-        except RequestException:
-            logging.error("Scan failed")
+        except RequestException as e:
+            logging.error(f"Scan failed for {url}: {e}")
 
     def worker(self):
         while self.running:
             try:
                 url, method, data = self.task_queue.get(timeout=1)
+                logging.debug(f"Worker processing: {method} {url}")
                 self.scan_url(url, method, data)
                 self.task_queue.task_done()
             except queue.Empty:
-                break
-            except Exception:
-                logging.error("Worker error")
+                logging.debug("Task queue empty, worker waiting...")
+                time.sleep(1)
+            except Exception as e:
+                logging.error(f"Worker error: {e}")
 
     def display_status(self):
         while self.running:
@@ -668,25 +701,51 @@ class Venom:
 
     def run(self):
         if not self.check_connection(self.args.url):
-            print(f"{RED}[!] Target URL unreachable. Exiting.{RESET}")
+            print(f"{RED}[!] Target URL {self.args.url} unreachable. Exiting.{RESET}")
             return
         
         urls = self.crawl_links(self.args.url)
+        logging.info(f"Initial crawl found {len(urls)} URLs")
+        if self.subdomains:
+            for subdomain in self.subdomains:
+                if self.check_connection(subdomain):
+                    urls.extend(self.crawl_links(subdomain))
+                else:
+                    logging.warning(f"Subdomain {subdomain} unreachable, skipping")
+
+        # Ensure base URL is tested even if crawl finds no additional URLs
+        if self.args.method in ['get', 'both']:
+            self.task_queue.put((self.args.url, 'get', {}))
+            logging.debug(f"Queued GET task for {self.args.url}")
+        if self.args.method in ['post', 'both']:
+            self.task_queue.put((self.args.url, 'post', self.post_data))
+            logging.debug(f"Queued POST task for {self.args.url}")
+
         for url in urls:
             if self.args.method in ['get', 'both']:
                 self.task_queue.put((url, 'get', {}))
+                logging.debug(f"Queued GET task for {url}")
             if self.args.method in ['post', 'both']:
                 self.task_queue.put((url, 'post', self.post_data))
+                logging.debug(f"Queued POST task for {url}")
 
+        logging.info(f"Task queue populated with {self.task_queue.qsize()} tasks")
+        print(f"{GREEN}[+] Starting scan with {self.task_queue.qsize()} tasks queued{RESET}")
+        
         status_thread = threading.Thread(target=self.display_status)
         status_thread.start()
 
-        with ThreadPoolExecutor(max_workers=self.args.workers) as executor:
-            for _ in range(self.args.workers):
-                executor.submit(self.worker)
+        workers = []
+        for _ in range(self.args.workers):
+            worker_thread = threading.Thread(target=self.worker)
+            worker_thread.start()
+            workers.append(worker_thread)
 
         self.task_queue.join()
         self.running = False
+        
+        for worker in workers:
+            worker.join()
         status_thread.join()
 
         self.generate_report()
