@@ -2,20 +2,20 @@
 Venom Advanced XSS Scanner (Version 5.45)
 Overview
 
-Venom Advanced XSS Scanner is a cutting-edge, open-source tool designed for ethical penetration testers and security researchers to identify Cross-Site Scripting (XSS) vulnerabilities in web applications. Built with Python, Venom combines precision, performance, and flexibility to deliver a professional-grade solution for vulnerability assessment. Version 5.45 introduces significant enhancements, making it a robust choice for both novice and expert users in the cybersecurity community.
+Venom Advanced XSS Scanner is a cutting-edge, open-source tool designed for ethical penetration testers and security researchers to identify Cross-Site Scripting (XSS) vulnerabilities in web applications. Built with Python, Venom combines precision, performance, and flexibility to deliver a professional-grade solution for vulnerability assessment. Version 5.48 introduces significant enhancements, making it a robust choice for both novice and expert users in the cybersecurity community.
 
 Venom Advanced XSS Scanner is a professional-grade tool for ethical penetration testers to identify XSS vulnerabilities with high accuracy. This version supports HTTP/HTTPS, smart POST/GET requests, custom POST from TXT files, session management, and AI model selection.
 
 Key Features
 
-Advanced XSS Detection: Utilizes precise context analysis to detect reflected and stored XSS vulnerabilities, with sanitization checks to minimize false positives.
-Parallel Payload Testing: Leverages multi-threading for high-performance scanning, with adaptive throttling to respect server limits and optimize speed.
-Robust Execution Verification: Integrates a headless Chrome browser to test payload execution across multiple contexts (e.g., DOM, scripts, attributes), ensuring accurate exploit confirmation.
-WAF/IPS Evasion: Supports dynamic bypass payloads for Web Application Firewalls (WAF) and Intrusion Prevention Systems (IPS), with options to simulate 403 responses for testing.
-Custom Payload Integration: Loads payloads from a configurable directory or a specific file, offering flexibility for tailored testing scenarios.
-AI-Driven Optimization: Employs local machine learning (TF-IDF and cosine similarity) or external AI platforms (e.g., xAI, OpenAI) to prioritize effective payloads based on response context.
-Detailed Reporting: Provides comprehensive reports with full URLs, complete payloads, and execution status, exportable in JSON or CSV formats for easy sharing and analysis.
-Ethical Use Enforcement: Requires explicit user confirmation to ensure responsible and ethical application, aligning with professional standards.
+● Advanced XSS detection with extended event handlers
+● Parallel payload testing with adaptive throttling
+● Custom payload integration from /usr/local/bin/payloads/
+● AI-driven payload optimization with WAF/403 bypass
+● Subdomain scanning from text file support
+● Comprehensive parameter testing for XSS
+● Enhanced endpoint discovery and crawling
+● Anonymous operation mode with Tor support
 
 
 Why Venom?
@@ -29,52 +29,65 @@ Venom Advanced XSS Scanner is a professional-grade tool for ethical penetration 
 - Local AI: Learns from past scans to optimize payloads (no API key needed).
 - External AI: Uses an external AI platform (requires --ai-key and --ai-platform).
 
+Venom Advanced XSS Scanner is a tool for ethical penetration testers to detect XSS vulnerabilities anonymously. Version 5.48 supports over 8000 payloads, extended event handlers, AI-driven WAF/403 bypass, subdomain scanning, and comprehensive parameter testing.
+
 Usage:
-  python3 venom.py <url> [options]
+  python3 venom.py <url> --scan-xss [options]
+
 Examples:
-  python3 venom.py http://example.com --scan-xss --ai-assist --force-headless  # Local AI with headless browser
-  python3 venom.py https://example.com --scan-xss --use-403-bypass -H "Cookie: session=abc123" -H "User-Agent: VenomScanner" -w 10 --verbose  # 403 bypass with custom headers
-  python3 venom.py http://example.com --scan-xss --ai-assist --ai-key "your-key" --ai-platform "xai-grok" --new-session  # External AI with new session
+  python3 venom.py http://target.com --scan-xss --anonymous --use-tor -w 5 --ai-assist --subdomains subdomains.txt
+    - Anonymous scan with Tor, AI optimization, and subdomain list.
+  python3 venom.py http://example.com --scan-xss --stealth --use-403-bypass --log-output --all-params
+    - Stealth mode with 403 bypass, live logging, and all parameter testing.
+  python3 venom.py http://test.com --scan-xss --extended-events --extra-params "email,id,search" --ai-platform xai-grok --ai-key YOUR_API_KEY
+    - Advanced scan with extended events, extra parameters, and AI assistance via xAI Grok.
 
 positional arguments:
-  url                   Target URL to scan (e.g., http://example.com).
+  url                   Target URL to scan (e.g., http://target.com).
 
 options:
   -h, --help            show this help message and exit
   -w, --workers WORKERS
                         Number of concurrent threads (default: 5, max: 20).
-  --ai-assist           Enable AI-driven payload optimization. Uses local learning by default; requires --ai-key and --ai-platform for external AI.
-  --ai-key AI_KEY       API key for external AI platform (e.g., 'your-xai-key'). Required with --ai-platform.
-  --ai-platform {xai-grok,openai-gpt3,google-gemini}
-                        External AI platform (e.g., 'xai-grok'). Requires --ai-key; optional with --ai-assist.
   --scan-xss            Enable XSS scanning (required).
+  --subdomains SUBDOMAINS
+                        Text file containing subdomains to scan (e.g., subdomains.txt).
+  --all-params          Ensure all discovered parameters are tested for XSS.
   --payloads-dir PAYLOADS_DIR
-                        Directory with custom payload files (default: './payloads/').
-  --timeout TIMEOUT     HTTP request timeout in seconds (default: 10).
+                        Directory with custom payload files (default: /usr/local/bin/payloads/).
+  --payload-file PAYLOAD_FILE
+                        Specific payload file to use instead of directory.
+  --timeout TIMEOUT     HTTP request timeout in seconds (default: 30).
   --verbose             Enable detailed logging.
   --stealth             Enable stealth mode: 2 workers, 5-15s delays.
   --min-delay MIN_DELAY
-                        Min delay between tests (default: 0.1 normal, 5 stealth).
+                        Min delay between requests (default: 0.1 or 5 in stealth).
   --max-delay MAX_DELAY
-                        Max delay between tests (default: 0.5 normal, 15 stealth).
-  --full-report         Show all vulnerabilities in report.
+                        Max delay between requests (default: 0.5 or 15 in stealth).
+  --full-report         Show detailed vulnerabilities in report.
+  --export-report EXPORT_REPORT
+                        Export report to a file (e.g., report.json, report.csv).
   -H, --headers HEADERS
-                        Custom HTTP headers (e.g., 'Cookie: session=abc123'). Can be specified multiple times.
+                        Custom headers (e.g., 'Cookie: session=abc123').
   --method {get,post,both}
-                        HTTP method: 'get', 'post', 'both' (default).
+                        HTTP method to test (default: both).
   --data DATA           POST data (e.g., 'key1=value1&key2=value2').
   --post-file POST_FILE
-                        TXT file with POST request (e.g., 'post.txt').
-  --payload-field PAYLOAD_FIELD
-                        Specific field to inject payloads (e.g., 'email').
-  --login-url LOGIN_URL
-                        Login URL for session.
-  --login-data LOGIN_DATA
-                        Login credentials (e.g., 'username=admin&password=pass123').
-  --verify-execution    Verify high-severity payloads with headless browser.
-  --force-headless      Force headless browser usage even if verification fails.
-  --new-session         Force a new session by clearing cookies before scanning.
-  --use-403-bypass      Enable 403 bypass using specialized payloads from payloads/403bypass.txt  
+                        TXT file with POST request.
+  --new-session         Start a new session, clearing cookies.
+  --use-403-bypass      Prioritize 403 bypass payloads from 403bypass.txt.
+  --simulate-403        Simulate a 403 response to test bypass payloads.
+  --no-live-status      Disable live status updates.
+  --anonymous           Run in anonymous mode (no identifiable data).
+  --use-tor             Route traffic through Tor (requires Tor on port 9050).
+  --ai-assist           Enable AI-driven payload optimization and WAF/403 bypass.
+  --ai-key AI_KEY       API key for external AI platform (required if --ai-platform is used).
+  --ai-platform {xai-grok,openai-gpt3,google-gemini}
+                        External AI platform for optimization (requires --ai-key).
+  --log-output          Enable console logging alongside file (overrides anonymous mode restriction).
+  --extended-events     Use extended event handlers (onmouseover, onclick, etc.).
+  --extra-params EXTRA_PARAMS
+                        Comma-separated list of additional parameters to test (e.g., 'email,id,search'). 
   
   
   
