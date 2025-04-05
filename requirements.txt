@@ -8,3 +8,5 @@ urllib3>=1.26.0
 pip install -r requirements.txt
 
 pip3 list | grep -E "requests|beautifulsoup4|scikit-learn|dnspython|stem|urllib3"
+
+python3 venom.py http://<url> --scan-xss --verbose --new-session -w 2 --stealth --method both --payloads-dir '/usr/local/bin/payloads' --all-params --log-output --use-tor --anonymous --export-report report.json
