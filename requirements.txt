@@ -1,7 +1,10 @@
-requests
-beautifulsoup4
-lxml
-urllib3
-typing-extensions
+requests>=2.28.0
+beautifulsoup4>=4.11.0
+scikit-learn>=1.2.0
+dnspython>=2.2.0
+stem>=1.8.0
+urllib3>=1.26.0
 
 pip install -r requirements.txt
+
+pip3 list | grep -E "requests|beautifulsoup4|scikit-learn|dnspython|stem|urllib3"
