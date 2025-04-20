@@ -1,12 +1,7 @@
-requests>=2.28.0
-beautifulsoup4>=4.11.0
-scikit-learn>=1.2.0
-dnspython>=2.2.0
-stem>=1.8.0
-urllib3>=1.26.0
-
-pip install -r requirements.txt
-
-pip3 list | grep -E "requests|beautifulsoup4|scikit-learn|dnspython|stem|urllib3"
-
-python3 venom.py http://<url> --scan-xss --verbose --new-session -w 2 --stealth --method both --payloads-dir '/usr/local/bin/payloads' --all-params --log-output --use-tor --anonymous --export-report report.json
+requests==2.31.0
+beautifulsoup4==4.12.3
+urllib3==2.2.3
+scikit-learn==1.5.2
+pysocks==1.7.1
+stem==1.8.3
+dnspython==2.6.1
