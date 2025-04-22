@@ -1,0 +1,26 @@
+git clone https://github.com/username/venom.git
+cd venom
+
+python3 -m venv venom_env
+source venom_env/bin/activate  # On Windows: venom_env\Scripts\activate
+
+Create a Virtual Environment (recommended):
+python3 -m venv venom_env
+source venom_env/bin/activate  # On Windows: venom_env\Scripts\activate
+
+pip install -r requirements.txt
+
+Create a directory for payloads (default: /usr/local/bin/payloads/)
+sudo mkdir -p /usr/local/bin/payloads
+sudo chmod 755 /usr/local/bin/payloads
+
+Configure Tor (Optional)
+sudo apt-get install tor  # On Debian/Ubuntu
+sudo yum install tor      # On CentOS/RHEL
+
+sudo systemctl start tor
+netstat -tuln | grep 9050
+
+For anonymous mode with Tor
+python3 venom.py http://example.com --scan-xss --anonymous --use-tor
+
