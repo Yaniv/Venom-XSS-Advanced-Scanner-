@@ -47,7 +47,6 @@ Real-Time Feedback: Displays live scan progress and generates detailed reports i
   
   
   
-  ![venom3](https://github.com/user-attachments/assets/721e6373-04b4-4bf9-bdde-192e768c0426)
 
   
   
