@@ -1,5 +1,5 @@
 ![יניב](https://github.com/user-attachments/assets/bb26572f-2d8b-400e-b4e6-7d70536cc51e)
-Venom Advanced XSS Scanner (Version 5.48)
+Venom Advanced XSS Scanner (Version 5.49)
 
 
 The Venom Advanced XSS Scanner (Version 5.48) is a sophisticated, open-source penetration testing tool developed for security professionals and ethical hackers to identify Cross-Site Scripting (XSS) vulnerabilities in web applications. Designed with a focus on precision, scalability, and anonymity, Venom integrates advanced detection techniques, extensive payload libraries, and robust network resilience to deliver a powerful solution for assessing web application security. Built by a team committed to ethical use, Venom is intended exclusively for authorized security testing and research purposes, emphasizing compliance with legal and ethical standards.
