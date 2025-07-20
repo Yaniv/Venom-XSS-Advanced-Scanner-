@@ -1,10 +1,6 @@
-requests>=2.28.1
-beautifulsoup4>=4.11.1
-urllib3>=1.26.12
-PySocks>=1.7.1
-pysocks>=1.7.1  # Note: This might be redundant if PySocks is used
-stem>=1.8.0
-dnspython>=2.2.1
-scikit-learn>=1.1.2
-argparse>=1.4.0
-typing-extensions>=4.3.0
+requests>=2.31.0
+beautifulsoup4>=4.12.2
+stem>=1.8.2
+dnspython>=2.4.2
+scikit-learn>=1.5.1
+numpy>=1.22.0
